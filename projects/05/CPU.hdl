@@ -40,4 +40,30 @@ CHIP CPU {
 
     PARTS:
     // Put your code here:
+    Mux16(a=instruction, b=outALU1, sel=instruction[15], out=a);
+    // A register
+    Not(in=instruction[15], out=insA);
+    Or(a=insA, b=instruction[5], out=loadA);
+    Register(in=a, load=loadA, out=A, out=inPC, out[0..14]=addressM);
+    // Choose A or M as one ALU input
+    Mux16(a=A, b=inM, sel=instruction[12], out=AorM);
+    // D register
+    And(a=instruction[15], b=instruction[4], out=loadD);
+    DRegister(in=outALU2, load=loadD, out=D);
+    // compute ALU
+    ALU(x=AorM, y=D, zx=instruction[9], nx=instruction[8], zy=instruction[11], ny=instruction[10], f=instruction[7], no=instruction[6], out=outM, out=outALU1, out=outALU2, zr=zr, ng=ng);
+    // writeM
+    And(a=instruction[15], b=instruction[3], out=writeM);
+    // JUMP
+    And(a=zr, b=instruction[1], out=loadPC1);
+    And(a=ng, b=instruction[2], out=loadPC2);
+    Not(in=ng, out=gt1);
+    Not(in=zr, out=gt2);
+    And(a=gt1, b=gt2, out=gt);
+    And(a=gt, b=instruction[0], out=loadPC3);
+    Or(a=loadPC1, b=loadPC2, out=loadPC12);
+    Or(a=loadPC12, b=loadPC3, out=loadPC123);
+    And(a=instruction[15], b=loadPC123, out=loadPC);
+    // PC
+    PC(in=inPC, load=loadPC, inc=true, reset=reset, out[0..14]=pc);
 }
