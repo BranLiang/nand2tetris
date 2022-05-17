@@ -44,7 +44,7 @@ CHIP CPU {
     // A register
     Not(in=instruction[15], out=insA);
     Or(a=insA, b=instruction[5], out=loadA);
-    Register(in=a, load=loadA, out=A, out=inPC, out[0..14]=addressM);
+    ARegister(in=a, load=loadA, out=A, out=inPC, out[0..14]=addressM);
     // Choose A or M as one ALU input
     Mux16(a=A, b=inM, sel=instruction[12], out=AorM);
     // D register
