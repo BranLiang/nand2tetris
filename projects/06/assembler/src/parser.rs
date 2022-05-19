@@ -1,4 +1,4 @@
-use std::fmt::Binary;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::Lines;
@@ -10,16 +10,19 @@ pub enum Instruction {
     C { dest: Option<String>, comp: String, jump: Option<String> }
 }
 
-impl Binary for Instruction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Instruction {
+    pub fn to_decimal(&self, dictionary: &HashMap<String, i16>) -> Option<i16> {
         match &self {
             &Instruction::A(symbol) => {
-                let address: i16 = symbol.parse().unwrap();
-                Binary::fmt(&address, f)
+                if let Ok(address) = symbol.parse::<i16>() {
+                    Some(address)
+                } else {
+                    let address = dictionary.get(symbol).unwrap();
+                    Some(*address)
+                }
             },
-            &Instruction::L(symbol) => {
-                let address: i16 = 123;
-                Binary::fmt(&address, f)
+            &Instruction::L(_symbol) => {
+                None
             },
             &Instruction::C { dest, comp, jump } => {
                 let opcode_b: i16 = 0b111 << 13;
@@ -83,24 +86,24 @@ impl Binary for Instruction {
                     0b000
                 };
                 let binary = opcode_b | comp_b | dest_b | jump_b;
-                Binary::fmt(&binary, f)
+                Some(binary)
             }
         }
     }
 }
 
-pub struct Parser {
-    lines: Lines<BufReader<File>>
+pub struct Parser<'a> {
+    lines: Lines<BufReader<&'a File>>
 }
 
-impl Parser {
-    pub fn new(file: File) -> Self {
+impl<'a> Parser<'a> {
+    pub fn new(file: &'a File) -> Self {
         let lines = BufReader::new(file).lines();
         Parser { lines }
     }
 }
 
-impl Iterator for Parser {
+impl<'a> Iterator for Parser<'a> {
     type Item = Instruction;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -110,6 +113,11 @@ impl Iterator for Parser {
 }
 
 fn line_to_instruction(line: &str) -> Option<Instruction> {
+    let line = if let Some((line_without_comment, _comment)) = line.split_once("//") {
+        line_without_comment
+    } else {
+        line
+    };
     let line = line.trim();
     if line.starts_with("//") || line.is_empty() {
         return None;
@@ -184,29 +192,33 @@ mod tests {
 
     #[test]
     fn instruction_a_to_binary() {
+        let dictionary = HashMap::new();
+
         let a1 = Instruction::A("17".to_string());
-        assert_eq!("0000000000010001", format!("{:016b}", a1));
+        assert_eq!("0000000000010001", format!("{:016b}", a1.to_decimal(&dictionary).unwrap()));
 
         let a2 = Instruction::A("1".to_string());
-        assert_eq!("0000000000000001", format!("{:016b}", a2))
+        assert_eq!("0000000000000001", format!("{:016b}", a2.to_decimal(&dictionary).unwrap()))
     }
 
     #[test]
     fn instruction_c_to_binary() {
+        let dictionary = HashMap::new();
+
         let c1 = Instruction::C { dest: None, comp: "0".to_string(), jump: None };
-        assert_eq!("1110101010000000", format!("{:016b}", c1));
+        assert_eq!("1110101010000000", format!("{:016b}", c1.to_decimal(&dictionary).unwrap()));
 
         let c2 = Instruction::C { dest: None, comp: "M".to_string(), jump: None };
-        assert_eq!("1111110000000000", format!("{:016b}", c2));
+        assert_eq!("1111110000000000", format!("{:016b}", c2.to_decimal(&dictionary).unwrap()));
 
         let c3 = Instruction::C { dest: Some("D".to_string()), comp: "D+M".to_string(), jump: None };
-        assert_eq!("1111000010010000", format!("{:016b}", c3));
+        assert_eq!("1111000010010000", format!("{:016b}", c3.to_decimal(&dictionary).unwrap()));
 
         let c4 = Instruction::C { dest: None, comp: "D".to_string(), jump: Some("JGE".to_string()) };
-        assert_eq!("1110001100000011", format!("{:016b}", c4));
+        assert_eq!("1110001100000011", format!("{:016b}", c4.to_decimal(&dictionary).unwrap()));
 
         let c5 = Instruction::C { dest: Some("D".to_string()), comp: "D+M".to_string(), jump: Some("JGT".to_string()) };
-        assert_eq!("1111000010010001", format!("{:016b}", c5));
+        assert_eq!("1111000010010001", format!("{:016b}", c5.to_decimal(&dictionary).unwrap()));
     }
 
     #[test]
@@ -244,24 +256,27 @@ mod tests {
 
     #[test]
     fn lines_to_c_instruction() {
+        let dictionary = HashMap::new();
+
         let c1 = line_to_instruction("0").unwrap();
-        assert_eq!("1110101010000000", format!("{:016b}", c1));
+        assert_eq!("1110101010000000", format!("{:016b}", c1.to_decimal(&dictionary).unwrap()));
 
         let c2 = line_to_instruction("M").unwrap();
-        assert_eq!("1111110000000000", format!("{:016b}", c2));
+        assert_eq!("1111110000000000", format!("{:016b}", c2.to_decimal(&dictionary).unwrap()));
 
         let c3 = line_to_instruction("D=D+M").unwrap();
-        assert_eq!("1111000010010000", format!("{:016b}", c3));
+        assert_eq!("1111000010010000", format!("{:016b}", c3.to_decimal(&dictionary).unwrap()));
 
         let c4 = line_to_instruction("D;JGE").unwrap();
-        assert_eq!("1110001100000011", format!("{:016b}", c4));
+        assert_eq!("1110001100000011", format!("{:016b}", c4.to_decimal(&dictionary).unwrap()));
 
         let c5 = line_to_instruction("D=D+M;JGT").unwrap();
-        assert_eq!("1111000010010001", format!("{:016b}", c5));
+        assert_eq!("1111000010010001", format!("{:016b}", c5.to_decimal(&dictionary).unwrap()));
     }
 
     #[test]
     fn test_basic_parser() {
+        let dictionary = HashMap::new();
         let content = "\
 // Computes R0 = 2 + 3  (R0 refers to RAM[0])
 
@@ -272,24 +287,24 @@ D=D+A
 @0
 M=D";
         let file = fixture(content);
-        let mut parser = Parser::new(file);
+        let mut parser = Parser::new(&file);
         let i1 = parser.next().unwrap();
-        assert_eq!("0000000000000010", format!("{:016b}", i1));
+        assert_eq!("0000000000000010", format!("{:016b}", i1.to_decimal(&dictionary).unwrap()));
 
         let i2 = parser.next().unwrap();
-        assert_eq!("1110110000010000", format!("{:016b}", i2));
+        assert_eq!("1110110000010000", format!("{:016b}", i2.to_decimal(&dictionary).unwrap()));
 
         let i3 = parser.next().unwrap();
-        assert_eq!("0000000000000011", format!("{:016b}", i3));
+        assert_eq!("0000000000000011", format!("{:016b}", i3.to_decimal(&dictionary).unwrap()));
 
         let i4 = parser.next().unwrap();
-        assert_eq!("1110000010010000", format!("{:016b}", i4));
+        assert_eq!("1110000010010000", format!("{:016b}", i4.to_decimal(&dictionary).unwrap()));
 
         let i5 = parser.next().unwrap();
-        assert_eq!("0000000000000000", format!("{:016b}", i5));
+        assert_eq!("0000000000000000", format!("{:016b}", i5.to_decimal(&dictionary).unwrap()));
 
-        let i5 = parser.next().unwrap();
-        assert_eq!("1110001100001000", format!("{:016b}", i5));
+        let i6 = parser.next().unwrap();
+        assert_eq!("1110001100001000", format!("{:016b}", i6.to_decimal(&dictionary).unwrap()));
 
         assert!(parser.next().is_none());
     }
