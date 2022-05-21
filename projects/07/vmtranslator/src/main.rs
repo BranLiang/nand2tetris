@@ -1,6 +1,7 @@
-use std::{env, process};
-use assembler::Config;
-use assembler::run;
+use std::env;
+use std::process;
+use vmtranslator::Config;
+use vmtranslator::run;
 
 fn main() {
     let config = Config::new(env::args()).unwrap_or_else(|err| {
