@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::io::BufRead;
 use std::io::Lines;
 use std::io::BufReader;
 use std::fs::File;
@@ -34,6 +34,13 @@ pub enum Command {
 
 pub struct Parser {
     lines: Lines<BufReader<File>>
+}
+
+impl Parser {
+    pub fn new(file: File) -> Self {
+        let lines = BufReader::new(file).lines();
+        Parser { lines }
+    }
 }
 
 impl Iterator for Parser {
@@ -106,6 +113,18 @@ fn subcommand_to_segment(subcommand: &str) -> Option<Segment> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempfile;
+    use std::io::SeekFrom;
+    use std::io::prelude::*;
+
+    fn fixture(content: &str) -> File {
+        let mut file = tempfile().unwrap();
+        for line in content.lines() {
+            writeln!(file, "{}", line).unwrap();
+        }
+        file.seek(SeekFrom::Start(0)).unwrap();
+        file
+    }
 
     #[test]
     fn arithmetic_line_to_command() {
@@ -140,5 +159,34 @@ mod tests {
             Command::Pop(Segment::Local, 2) => {},
             _ => panic!("error parsing `{}`", line)
         }
+    }
+
+    #[test]
+    fn basic_parser() {
+        let content = "\
+// Pushes and adds two constants.
+
+push constant 7
+push constant 8
+add";
+        let file = fixture(content);
+        let mut parser = Parser::new(file);
+
+        match parser.next().unwrap() {
+            Command::Push(Segment::Constant, 7) => {},
+            _ => panic!("error parsing `push constant 7`")            
+        }
+
+        match parser.next().unwrap() {
+            Command::Push(Segment::Constant, 8) => {},
+            _ => panic!("error parsing `push constant 8`")
+        }
+
+        match parser.next().unwrap() {
+            Command::Arithmetic(Operator::Add) => {},
+            _ => panic!("error parsing `add`")
+        }
+
+        assert!(parser.next().is_none());
     }
 }
