@@ -47,6 +47,9 @@ impl Translate for Hack {
                     },
                     Segment::Temp => {
                         Some(push_temp(*value))
+                    },
+                    Segment::Pointer => {
+                        Some(push_pointer(*value))
                     }
                     _ => None
                 }
@@ -71,6 +74,9 @@ impl Translate for Hack {
                     },
                     Segment::Temp => {
                         Some(pop_temp(*value))
+                    },
+                    Segment::Pointer => {
+                        Some(pop_pointer(*value))
                     }
                     _ => None
                 }
@@ -112,6 +118,27 @@ fn push_static(variable: &str) -> String {
     )
 }
 
+fn push_pointer(value: i16) -> String {
+    format!(
+        "{}\n{}\n",
+        load_pointer(value),
+        STACK_PUSH
+    )
+}
+
+fn pop_pointer(value: i16) -> String {
+    let variable = match value {
+        0 => "THIS",
+        1 => "THAT",
+        _ => panic!("Inavlue pointer index")
+    };
+    format!(
+        "{}\n{}\n",
+        STACK_POP,
+        assign_variable(variable)
+    )
+}
+
 fn pop_temp(index: i16) -> String {
     format!("\
 {}
@@ -142,6 +169,14 @@ fn pop_static(variable: &str) -> String {
         STACK_POP,
         assign_variable(&variable)
     )
+}
+
+fn load_pointer(index: i16) -> String {
+    match index {
+        0 => "@THIS\nD=M".to_string(),
+        1 => "@THAT\nD=M".to_string(),
+        _ => panic!("Invalid pointer index!")
+    }
 }
 
 fn load_constant(value: i16) -> String {
@@ -265,6 +300,36 @@ A=M
 M=D
 @SP
 M=M+1
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn push_pointer() {
+        let command = Command::Push(Segment::Pointer, 0);
+        assert_eq!("\
+@THIS
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn pop_pointer() {
+        let command = Command::Pop(Segment::Pointer, 1);
+        assert_eq!("\
+@SP
+AM=M-1
+D=M
+@THAT
+M=D
 ".to_string(),
             Hack::new("Foo.vm").translate(&command).unwrap()
         );
