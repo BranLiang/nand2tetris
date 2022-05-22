@@ -6,7 +6,7 @@ mod parser;
 mod platform;
 
 trait Translate {
-    fn translate(&self, command: &Command) -> Option<String>;
+    fn translate(&mut self, command: &Command) -> Option<String>;
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {

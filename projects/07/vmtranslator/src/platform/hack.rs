@@ -1,14 +1,23 @@
 use crate::Translate;
 use crate::parser::Command;
 use crate::parser::Segment;
+use crate::parser::Operator;
 pub struct Hack {
-    static_identifier: String
+    static_identifier: String,
+    label_prefix: String,
+    counter: i16
 }
 
 impl Hack {
     pub fn new(filename: &str) -> Self {
         let static_identifier = filename.strip_suffix(".vm").unwrap().to_string();
-        Hack { static_identifier }
+        let label_prefix = format!("{}_LABEL", static_identifier.to_uppercase());
+        let counter = 0;
+        Hack {
+            static_identifier,
+            label_prefix,
+            counter
+        }
     }
 }
 
@@ -25,12 +34,15 @@ M=D
 M=M+1";
 
 impl Translate for Hack {
-    fn translate(&self, command: &Command) -> Option<String> {
+    fn translate(&mut self, command: &Command) -> Option<String> {
         match command {
             Command::Push(segment, value) => {
                 match segment {
                     Segment::Constant => {
                         Some(push_contant(*value))
+                    },
+                    Segment::Local => {
+                        Some(push_segment("LCL", *value))
                     },
                     Segment::Argument => {
                         Some(push_segment("ARG", *value))
@@ -51,7 +63,6 @@ impl Translate for Hack {
                     Segment::Pointer => {
                         Some(push_pointer(*value))
                     }
-                    _ => None
                 }
             },
             Command::Pop(segment, value) => {
@@ -77,13 +88,101 @@ impl Translate for Hack {
                     },
                     Segment::Pointer => {
                         Some(pop_pointer(*value))
-                    }
+                    },
                     _ => None
                 }
-            }
+            },
+            Command::Arithmetic(operator) => {
+                match operator {
+                    Operator::Add => {
+                        Some(comp_x_and_y("M+D"))
+                    },
+                    Operator::Sub => {
+                        Some(comp_x_and_y("M-D"))
+                    },
+                    Operator::And => {
+                        Some(comp_x_and_y("D&M"))
+                    },
+                    Operator::Or => {
+                        Some(comp_x_and_y("D|M"))
+                    },
+                    Operator::Neg => {
+                        Some(comp_y("-M"))
+                    },
+                    Operator::Not => {
+                        Some(comp_y("!M"))
+                    },
+                    Operator::Eq => {
+                        let counter = self.counter;
+                        self.counter += 1;
+                        Some(comp_logic(counter, &self.label_prefix, "JEQ", "JNE"))
+                    },
+                    Operator::Lt => {
+                        let counter = self.counter;
+                        self.counter += 1;
+                        Some(comp_logic(counter, &self.label_prefix, "JLT", "JGE"))
+                    },
+                    Operator::Gt => {
+                        let counter = self.counter;
+                        self.counter += 1;
+                        Some(comp_logic(counter, &self.label_prefix, "JGT", "JLE"))
+                    }
+                }
+            },
             _ => None
         }
     }
+}
+
+fn comp_x_and_y(expression: &str) -> String {
+    format!("\
+@SP
+A=M-1
+D=M
+A=M-1
+D={}
+@SP
+A=M-1
+A=A-1
+M=D
+@SP
+M=M-1
+", expression)
+}
+
+fn comp_y(expression: &str) -> String {
+    format!("\
+@SP
+A=M-1
+D={}
+@SP
+A=M-1
+M=D
+", expression)
+}
+
+fn comp_logic(counter: i16, label_prefix: &str, jump_a: &str, jump_b: &str) -> String {
+    format!("\
+@SP
+A=M-1
+D=M
+A=M-1
+D=D-M
+@{}_{}T
+D;{}
+@{}_{}F
+D;{}
+({}_{}T)
+M=-1
+({}_{}F)
+M=0
+@SP
+A=M-1
+A=A-1
+M=D
+@SP
+M=M-1
+", label_prefix, counter, jump_a, label_prefix, counter, jump_b, label_prefix, counter, label_prefix, counter)
 }
 
 fn push_contant(value: i16) -> String {
@@ -386,6 +485,200 @@ AM=M-1
 D=M
 @Foo.2
 M=D
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn add() {
+        let command = Command::Arithmetic(Operator::Add);
+        assert_eq!("\
+@SP
+A=M-1
+D=M
+A=M-1
+D=M+D
+@SP
+A=M-1
+A=A-1
+M=D
+@SP
+M=M-1
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn sub() {
+        let command = Command::Arithmetic(Operator::Sub);
+        assert_eq!("\
+@SP
+A=M-1
+D=M
+A=M-1
+D=M-D
+@SP
+A=M-1
+A=A-1
+M=D
+@SP
+M=M-1
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn neg() {
+        let command = Command::Arithmetic(Operator::Neg);
+        assert_eq!("\
+@SP
+A=M-1
+D=-M
+@SP
+A=M-1
+M=D
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn not() {
+        let command = Command::Arithmetic(Operator::Not);
+        assert_eq!("\
+@SP
+A=M-1
+D=!M
+@SP
+A=M-1
+M=D
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn and() {
+        let command = Command::Arithmetic(Operator::And);
+        assert_eq!("\
+@SP
+A=M-1
+D=M
+A=M-1
+D=D&M
+@SP
+A=M-1
+A=A-1
+M=D
+@SP
+M=M-1
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn or() {
+        let command = Command::Arithmetic(Operator::Or);
+        assert_eq!("\
+@SP
+A=M-1
+D=M
+A=M-1
+D=D|M
+@SP
+A=M-1
+A=A-1
+M=D
+@SP
+M=M-1
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn eq() {
+        let command = Command::Arithmetic(Operator::Eq);
+        assert_eq!("\
+@SP
+A=M-1
+D=M
+A=M-1
+D=D-M
+@FOO_LABEL_0T
+D;JEQ
+@FOO_LABEL_0F
+D;JNE
+(FOO_LABEL_0T)
+M=-1
+(FOO_LABEL_0F)
+M=0
+@SP
+A=M-1
+A=A-1
+M=D
+@SP
+M=M-1
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn gt() {
+        let command = Command::Arithmetic(Operator::Gt);
+        assert_eq!("\
+@SP
+A=M-1
+D=M
+A=M-1
+D=D-M
+@FOO_LABEL_0T
+D;JGT
+@FOO_LABEL_0F
+D;JLE
+(FOO_LABEL_0T)
+M=-1
+(FOO_LABEL_0F)
+M=0
+@SP
+A=M-1
+A=A-1
+M=D
+@SP
+M=M-1
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn lt() {
+        let command = Command::Arithmetic(Operator::Lt);
+        assert_eq!("\
+@SP
+A=M-1
+D=M
+A=M-1
+D=D-M
+@FOO_LABEL_0T
+D;JLT
+@FOO_LABEL_0F
+D;JGE
+(FOO_LABEL_0T)
+M=-1
+(FOO_LABEL_0F)
+M=0
+@SP
+A=M-1
+A=A-1
+M=D
+@SP
+M=M-1
 ".to_string(),
             Hack::new("Foo.vm").translate(&command).unwrap()
         );
