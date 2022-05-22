@@ -1,7 +1,13 @@
 use std::env::Args;
 use std::error::Error;
+use crate::parser::Command;
 
 mod parser;
+mod platform;
+
+trait Translate {
+    fn translate(&self, command: &Command) -> Option<String>;
+}
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     Ok(())
