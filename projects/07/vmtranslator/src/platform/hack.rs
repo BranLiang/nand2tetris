@@ -138,7 +138,7 @@ fn comp_x_and_y(expression: &str) -> String {
 @SP
 A=M-1
 D=M
-A=M-1
+A=A-1
 D={}
 @SP
 A=M-1
@@ -165,7 +165,7 @@ fn comp_logic(counter: i16, label_prefix: &str, jump_a: &str, jump_b: &str) -> S
 @SP
 A=M-1
 D=M
-A=M-1
+A=A-1
 D=D-M
 @{}_{}T
 D;{}
