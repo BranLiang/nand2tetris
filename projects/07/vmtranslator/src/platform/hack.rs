@@ -128,8 +128,7 @@ impl Translate for Hack {
                         Some(comp_logic(counter, &self.label_prefix, "JGT", "JLE"))
                     }
                 }
-            },
-            _ => None
+            }
         }
     }
 }

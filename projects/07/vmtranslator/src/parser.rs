@@ -1,8 +1,10 @@
+use std::fmt::Display;
 use std::io::BufRead;
 use std::io::Lines;
 use std::io::BufReader;
 use std::fs::File;
 
+#[derive(Debug)]
 pub enum Segment {
     Argument,
     Local,
@@ -14,6 +16,7 @@ pub enum Segment {
     Temp,
 }
 
+#[derive(Debug)]
 pub enum Operator {
     Add,
     Sub,
@@ -30,6 +33,22 @@ pub enum Command {
     Arithmetic(Operator),
     Push(Segment, i16),
     Pop(Segment, i16),
+}
+
+impl Display for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Arithmetic(operator) => {
+                write!(f, "{}", format!("{:?}", operator).to_lowercase())
+            },
+            Self::Push(segment, value) => {
+                write!(f, "{}", format!("push {:?} {}", segment, value).to_lowercase())
+            },
+            Self::Pop(segment, value) => {
+                write!(f, "{}", format!("pop {:?} {}", segment, value).to_lowercase())
+            }
+        }
+    }
 }
 
 pub struct Parser {
@@ -188,5 +207,26 @@ add";
         }
 
         assert!(parser.next().is_none());
+    }
+
+    #[test]
+    fn command_display() {
+        let command = Command::Arithmetic(Operator::Add);
+        assert_eq!(
+            "add".to_string(),
+            format!("{}", command)
+        );
+
+        let command = Command::Push(Segment::Argument, 3);
+        assert_eq!(
+            "push argument 3".to_string(),
+            format!("{}", command)
+        );
+
+        let command = Command::Pop(Segment::Local, 2);
+        assert_eq!(
+            "pop local 2".to_string(),
+            format!("{}", command)
+        );
     }
 }

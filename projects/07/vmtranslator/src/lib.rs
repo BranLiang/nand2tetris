@@ -1,5 +1,7 @@
 use std::env::Args;
 use std::error::Error;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use crate::parser::Command;
 
 mod parser;
@@ -10,6 +12,21 @@ trait Translate {
 }
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
+    let file = File::open(&config.filename)?;
+    let parser = parser::Parser::new(file);
+    let mut platform = platform::Hack::new(&config.filename);
+    let mut output = OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .create(true)
+        .open(&config.destination)?;
+
+    for command in parser {
+        if let Some(assembly) = platform.translate(&command) {
+            writeln!(output, "// {}", &command)?;
+            write!(output, "{}", assembly)?;
+        }
+    }
     Ok(())
 }
 
