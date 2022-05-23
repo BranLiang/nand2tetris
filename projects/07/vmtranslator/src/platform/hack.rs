@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::Translate;
 use crate::parser::Command;
 use crate::parser::Segment;
@@ -10,7 +12,8 @@ pub struct Hack {
 
 impl Hack {
     pub fn new(filename: &str) -> Self {
-        let static_identifier = filename.strip_suffix(".vm").unwrap().to_string();
+        let static_identifier = Path::new(filename).file_name().unwrap().to_str().unwrap();
+        let static_identifier = static_identifier.strip_suffix(".vm").unwrap().to_string();
         let label_prefix = format!("{}_LABEL", static_identifier.to_uppercase());
         let counter = 0;
         Hack {
@@ -115,17 +118,17 @@ impl Translate for Hack {
                     Operator::Eq => {
                         let counter = self.counter;
                         self.counter += 1;
-                        Some(comp_logic(counter, &self.label_prefix, "JEQ", "JNE"))
+                        Some(comp_logic(counter, &self.label_prefix, "JEQ"))
                     },
                     Operator::Lt => {
                         let counter = self.counter;
                         self.counter += 1;
-                        Some(comp_logic(counter, &self.label_prefix, "JLT", "JGE"))
+                        Some(comp_logic(counter, &self.label_prefix, "JLT"))
                     },
                     Operator::Gt => {
                         let counter = self.counter;
                         self.counter += 1;
-                        Some(comp_logic(counter, &self.label_prefix, "JGT", "JLE"))
+                        Some(comp_logic(counter, &self.label_prefix, "JGT"))
                     }
                 }
             }
@@ -160,28 +163,28 @@ M=D
 ", expression)
 }
 
-fn comp_logic(counter: i16, label_prefix: &str, jump_a: &str, jump_b: &str) -> String {
+fn comp_logic(counter: i16, label_prefix: &str, jump: &str) -> String {
+    let label = format!("{}_{}", label_prefix, counter);
     format!("\
 @SP
-A=M-1
+M=M-1
+A=M
 D=M
 A=A-1
-D=D-M
-@{}_{}T
+D=M-D
+@{}
 D;{}
-@{}_{}F
-D;{}
-({}_{}T)
-M=-1
-({}_{}F)
-M=0
 @SP
 A=M-1
-A=A-1
-M=D
+M=0
+@{}_END
+0;JMP
+({})
 @SP
-M=M-1
-", label_prefix, counter, jump_a, label_prefix, counter, jump_b, label_prefix, counter, label_prefix, counter)
+A=M-1
+M=-1
+({}_END)
+", label, jump, label, label, label)
 }
 
 fn push_contant(value: i16) -> String {
@@ -496,7 +499,7 @@ M=D
 @SP
 A=M-1
 D=M
-A=M-1
+A=A-1
 D=M+D
 @SP
 A=M-1
@@ -516,7 +519,7 @@ M=M-1
 @SP
 A=M-1
 D=M
-A=M-1
+A=A-1
 D=M-D
 @SP
 A=M-1
@@ -566,7 +569,7 @@ M=D
 @SP
 A=M-1
 D=M
-A=M-1
+A=A-1
 D=D&M
 @SP
 A=M-1
@@ -586,7 +589,7 @@ M=M-1
 @SP
 A=M-1
 D=M
-A=M-1
+A=A-1
 D=D|M
 @SP
 A=M-1
@@ -604,24 +607,23 @@ M=M-1
         let command = Command::Arithmetic(Operator::Eq);
         assert_eq!("\
 @SP
-A=M-1
-D=M
-A=M-1
-D=D-M
-@FOO_LABEL_0T
-D;JEQ
-@FOO_LABEL_0F
-D;JNE
-(FOO_LABEL_0T)
-M=-1
-(FOO_LABEL_0F)
-M=0
-@SP
-A=M-1
-A=A-1
-M=D
-@SP
 M=M-1
+A=M
+D=M
+A=A-1
+D=M-D
+@FOO_LABEL_0
+D;JEQ
+@SP
+A=M-1
+M=0
+@FOO_LABEL_0_END
+0;JMP
+(FOO_LABEL_0)
+@SP
+A=M-1
+M=-1
+(FOO_LABEL_0_END)
 ".to_string(),
             Hack::new("Foo.vm").translate(&command).unwrap()
         );
@@ -632,24 +634,23 @@ M=M-1
         let command = Command::Arithmetic(Operator::Gt);
         assert_eq!("\
 @SP
-A=M-1
-D=M
-A=M-1
-D=D-M
-@FOO_LABEL_0T
-D;JGT
-@FOO_LABEL_0F
-D;JLE
-(FOO_LABEL_0T)
-M=-1
-(FOO_LABEL_0F)
-M=0
-@SP
-A=M-1
-A=A-1
-M=D
-@SP
 M=M-1
+A=M
+D=M
+A=A-1
+D=M-D
+@FOO_LABEL_0
+D;JGT
+@SP
+A=M-1
+M=0
+@FOO_LABEL_0_END
+0;JMP
+(FOO_LABEL_0)
+@SP
+A=M-1
+M=-1
+(FOO_LABEL_0_END)
 ".to_string(),
             Hack::new("Foo.vm").translate(&command).unwrap()
         );
@@ -660,24 +661,23 @@ M=M-1
         let command = Command::Arithmetic(Operator::Lt);
         assert_eq!("\
 @SP
-A=M-1
-D=M
-A=M-1
-D=D-M
-@FOO_LABEL_0T
-D;JLT
-@FOO_LABEL_0F
-D;JGE
-(FOO_LABEL_0T)
-M=-1
-(FOO_LABEL_0F)
-M=0
-@SP
-A=M-1
-A=A-1
-M=D
-@SP
 M=M-1
+A=M
+D=M
+A=A-1
+D=M-D
+@FOO_LABEL_0
+D;JLT
+@SP
+A=M-1
+M=0
+@FOO_LABEL_0_END
+0;JMP
+(FOO_LABEL_0)
+@SP
+A=M-1
+M=-1
+(FOO_LABEL_0_END)
 ".to_string(),
             Hack::new("Foo.vm").translate(&command).unwrap()
         );
