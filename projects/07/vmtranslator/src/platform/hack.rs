@@ -7,7 +7,8 @@ use crate::parser::Operator;
 pub struct Hack {
     static_identifier: String,
     label_prefix: String,
-    counter: i16
+    counter: i16,
+    func_counter: i16
 }
 
 impl Hack {
@@ -16,10 +17,12 @@ impl Hack {
         let static_identifier = static_identifier.strip_suffix(".vm").unwrap().to_string();
         let label_prefix = format!("{}_LABEL", static_identifier.to_uppercase());
         let counter = 0;
+        let func_counter = 0;
         Hack {
             static_identifier,
             label_prefix,
-            counter
+            counter,
+            func_counter
         }
     }
 
@@ -153,9 +156,138 @@ M=M-1
 D;JNE
 ", label))
             },
-            _ => None
+            Command::Call(name, n_args) => {
+                let return_label = format!("{}$ret.{}", self.static_identifier, self.func_counter);
+                let func_label = format!("{}.{}", self.static_identifier, name);
+                Some(translate_call(&return_label, &func_label, *n_args))
+            },
+            Command::Function(name, n_vars) => {
+                let func_label = format!("{}.{}", self.static_identifier, name);
+                Some(translate_function(&func_label, *n_vars))
+            },
+            Command::Return => {
+                Some(translate_return())
+            }
         }
     }
+}
+
+fn translate_call(return_label: &str, func_label: &str, n_args: i16) -> String {
+    format!("\
+@{}
+D=A
+@SP
+A=M
+M=D
+@SP
+M=M+1
+@LCL
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+@ARG
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+@THIS
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+@THAT
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+@ARG
+D=M
+@5
+D=D-A
+@{}
+D=D-A
+@ARG
+M=D
+@SP
+D=M
+@LCL
+M=D
+@{}
+0;JMP
+({})
+", return_label, n_args, func_label, return_label)
+}
+
+fn translate_function(func_label: &str, n_vars: i16) -> String {
+    let mut assembly = format!("({})\n", func_label);
+    for _ in 0..n_vars {
+        assembly.push_str("\
+@SP
+A=M
+M=0
+@SP
+M=M+1
+")
+    }
+    assembly
+}
+
+fn translate_return() -> String {
+    format!("\
+@LCL
+D=M
+@endframe
+M=D
+@5
+A=D-A
+D=M
+@retaddr
+M=D
+@SP
+M=M-1
+A=M
+D=M
+@ARG
+A=M
+M=D
+@ARG
+D=M+1
+@SP
+M=D
+@endframe
+AM=M-1
+D=M
+@THAT
+M=D
+@endframe
+AM=M-1
+D=M
+@THIS
+M=D
+@endframe
+AM=M-1
+D=M
+@ARG
+M=D
+@endframe
+AM=M-1
+D=M
+@LCL
+M=D
+@endframe
+A=M-1
+A=M
+0;JMP
+")
 }
 
 fn comp_x_and_y(expression: &str) -> String {
@@ -738,5 +870,137 @@ M=-1
 ".to_string(),
             Hack::new("Foo.vm").translate(&command).unwrap()
         );
+    }
+
+    #[test]
+    fn call_command() {
+        let command = Command::Call("multiply".to_string(), 2);
+        assert_eq!("\
+@Foo$ret.0
+D=A
+@SP
+A=M
+M=D
+@SP
+M=M+1
+@LCL
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+@ARG
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+@THIS
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+@THAT
+D=M
+@SP
+A=M
+M=D
+@SP
+M=M+1
+@ARG
+D=M
+@5
+D=D-A
+@2
+D=D-A
+@ARG
+M=D
+@SP
+D=M
+@LCL
+M=D
+@Foo.multiply
+0;JMP
+(Foo$ret.0)
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        )
+    }
+
+    #[test]
+    fn function_command() {
+        let command = Command::Function("multiply".to_string(), 2);
+        assert_eq!("\
+(Foo.multiply)
+@SP
+A=M
+M=0
+@SP
+M=M+1
+@SP
+A=M
+M=0
+@SP
+M=M+1
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        )
+    }
+
+    #[test]
+    fn return_command() {
+        let command = Command::Return;
+        assert_eq!("\
+@LCL
+D=M
+@endframe
+M=D
+@5
+A=D-A
+D=M
+@retaddr
+M=D
+@SP
+M=M-1
+A=M
+D=M
+@ARG
+A=M
+M=D
+@ARG
+D=M+1
+@SP
+M=D
+@endframe
+AM=M-1
+D=M
+@THAT
+M=D
+@endframe
+AM=M-1
+D=M
+@THIS
+M=D
+@endframe
+AM=M-1
+D=M
+@ARG
+M=D
+@endframe
+AM=M-1
+D=M
+@LCL
+M=D
+@endframe
+A=M-1
+A=M
+0;JMP
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        )
     }
 }
