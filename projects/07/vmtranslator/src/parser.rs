@@ -35,7 +35,10 @@ pub enum Command {
     Pop(Segment, i16),
     Label(String),
     GoTo(String),
-    IfGoTo(String)
+    IfGoTo(String),
+    Function(String, i16),
+    Call(String, i16),
+    Return
 }
 
 impl Display for Command {
@@ -58,6 +61,15 @@ impl Display for Command {
             },
             Self::IfGoTo(label) => {
                 write!(f, "{}", format!("if-goto {}", label).to_lowercase())
+            },
+            Self::Function(name, n_vars) => {
+                write!(f, "function {} {}", name, n_vars)
+            },
+            Self::Call(name, n_args) => {
+                write!(f, "call {} {}", name, n_args)
+            },
+            Self::Return => {
+                write!(f, "return")
             }
         }
     }
@@ -133,6 +145,27 @@ fn line_to_command(line: &str) -> Option<Command> {
         Some("if-goto") => {
             let label = line.next()?;
             Some(Command::IfGoTo(label.to_string()))
+        },
+        Some("function") => {
+            let name = line.next()?;
+            let n_vars = line.next()?;
+            if let Ok(n_vars) = n_vars.parse::<i16>() {
+                Some(Command::Function(name.to_string(), n_vars))
+            } else {
+                None
+            }
+        },
+        Some("call") => {
+            let name = line.next()?;
+            let n_vars = line.next()?;
+            if let Ok(n_vars) = n_vars.parse::<i16>() {
+                Some(Command::Call(name.to_string(), n_vars))
+            } else {
+                None
+            }
+        },
+        Some("return") => {
+            Some(Command::Return)
         },
         _ => None
     }
@@ -224,6 +257,30 @@ mod tests {
         let command = line_to_command(line).unwrap();
         match command {
             Command::IfGoTo(_label) => {},
+            _ => panic!("error parsing `{}`", line)
+        }
+    }
+
+    #[test]
+    fn function_line_to_command() {
+        let line = "function hello 2";
+        let command = line_to_command(line).unwrap();
+        match command {
+            Command::Function(_name, _n_vars) => {},
+            _ => panic!("error parsing `{}`", line)
+        }
+
+        let line = "call hello 2";
+        let command = line_to_command(line).unwrap();
+        match command {
+            Command::Call(_name, _n_vars) => {},
+            _ => panic!("error parsing `{}`", line)
+        }
+
+        let line = "return";
+        let command = line_to_command(line).unwrap();
+        match command {
+            Command::Return => {},
             _ => panic!("error parsing `{}`", line)
         }
     }
