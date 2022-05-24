@@ -33,6 +33,9 @@ pub enum Command {
     Arithmetic(Operator),
     Push(Segment, i16),
     Pop(Segment, i16),
+    Label(String),
+    GoTo(String),
+    IfGoTo(String)
 }
 
 impl Display for Command {
@@ -46,6 +49,15 @@ impl Display for Command {
             },
             Self::Pop(segment, value) => {
                 write!(f, "{}", format!("pop {:?} {}", segment, value).to_lowercase())
+            },
+            Self::Label(label) => {
+                write!(f, "{}", format!("label {}", label).to_lowercase())
+            },
+            Self::GoTo(label) => {
+                write!(f, "{}", format!("goto {}", label).to_lowercase())
+            },
+            Self::IfGoTo(label) => {
+                write!(f, "{}", format!("if-goto {}", label).to_lowercase())
             }
         }
     }
@@ -109,6 +121,18 @@ fn line_to_command(line: &str) -> Option<Command> {
             } else {
                 None
             }
+        },
+        Some("label") => {
+            let label = line.next()?;
+            Some(Command::Label(label.to_string()))
+        },
+        Some("goto") => {
+            let label = line.next()?;
+            Some(Command::GoTo(label.to_string()))
+        },
+        Some("if-goto") => {
+            let label = line.next()?;
+            Some(Command::IfGoTo(label.to_string()))
         },
         _ => None
     }
@@ -176,6 +200,30 @@ mod tests {
         let command = line_to_command(line).unwrap();
         match command {
             Command::Pop(Segment::Local, 2) => {},
+            _ => panic!("error parsing `{}`", line)
+        }
+    }
+
+    #[test]
+    fn branching_line_to_command() {
+        let line = "label LOOP";
+        let command = line_to_command(line).unwrap();
+        match command {
+            Command::Label(_label) => {},
+            _ => panic!("error parsing `{}`", line)
+        }
+
+        let line = "goto LOOP";
+        let command = line_to_command(line).unwrap();
+        match command {
+            Command::GoTo(_label) => {},
+            _ => panic!("error parsing `{}`", line)
+        }
+
+        let line = "if-goto LOOP";
+        let command = line_to_command(line).unwrap();
+        match command {
+            Command::IfGoTo(_label) => {},
             _ => panic!("error parsing `{}`", line)
         }
     }

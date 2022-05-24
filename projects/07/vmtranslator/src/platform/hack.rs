@@ -131,6 +131,21 @@ impl Translate for Hack {
                         Some(comp_logic(counter, &self.label_prefix, "JGT"))
                     }
                 }
+            },
+            Command::Label(label) => {
+                Some(format!("({})\n", label))
+            },
+            Command::GoTo(label) => {
+                Some(format!("@{}\n0;JMP\n", label))
+            },
+            Command::IfGoTo(label) => {
+                Some(format!("\
+@SP
+A=M-1
+D=M
+@{}
+D;JNE
+", label))
             }
         }
     }
@@ -335,6 +350,41 @@ M=D", variable)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn label() {
+        let command = Command::Label("LOOP".to_string());
+        assert_eq!("\
+(LOOP)
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn goto() {
+        let command = Command::GoTo("LOOP".to_string());
+        assert_eq!("\
+@LOOP
+0;JMP
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
+
+    #[test]
+    fn if_goto() {
+        let command = Command::IfGoTo("LOOP".to_string());
+        assert_eq!("\
+@SP
+A=M-1
+D=M
+@LOOP
+D;JNE
+".to_string(),
+            Hack::new("Foo.vm").translate(&command).unwrap()
+        );
+    }
 
     #[test]
     fn push_contant() {
