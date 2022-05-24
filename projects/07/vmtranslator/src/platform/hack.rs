@@ -158,12 +158,10 @@ D;JNE
             },
             Command::Call(name, n_args) => {
                 let return_label = format!("{}$ret.{}", self.static_identifier, self.func_counter);
-                let func_label = format!("{}.{}", self.static_identifier, name);
-                Some(translate_call(&return_label, &func_label, *n_args))
+                Some(translate_call(&return_label, name, *n_args))
             },
             Command::Function(name, n_vars) => {
-                let func_label = format!("{}.{}", self.static_identifier, name);
-                Some(translate_function(&func_label, *n_vars))
+                Some(translate_function(name, *n_vars))
             },
             Command::Return => {
                 Some(translate_return())
@@ -518,6 +516,8 @@ mod tests {
 @SP
 A=M-1
 D=M
+@SP
+M=M-1
 @LOOP
 D;JNE
 ".to_string(),
@@ -874,7 +874,7 @@ M=-1
 
     #[test]
     fn call_command() {
-        let command = Command::Call("multiply".to_string(), 2);
+        let command = Command::Call("Foo.multiply".to_string(), 2);
         assert_eq!("\
 @Foo$ret.0
 D=A
@@ -933,7 +933,7 @@ M=D
 
     #[test]
     fn function_command() {
-        let command = Command::Function("multiply".to_string(), 2);
+        let command = Command::Function("Foo.multiply".to_string(), 2);
         assert_eq!("\
 (Foo.multiply)
 @SP
