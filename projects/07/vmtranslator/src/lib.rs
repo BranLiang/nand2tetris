@@ -27,6 +27,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             write!(output, "{}", assembly)?;
         }
     }
+    writeln!(output, "// Program end")?;
+    write!(output, "{}", platform.end())?;
     Ok(())
 }
 

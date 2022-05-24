@@ -22,6 +22,10 @@ impl Hack {
             counter
         }
     }
+
+    pub fn end(&self) -> String {
+        "(END)\n@END\n0;JMP\n".to_string()
+    }
 }
 
 const STACK_POP: &'static str = "\
@@ -143,6 +147,8 @@ impl Translate for Hack {
 @SP
 A=M-1
 D=M
+@SP
+M=M-1
 @{}
 D;JNE
 ", label))
