@@ -157,8 +157,7 @@ AM=M-1
 D=M
 @LCL
 M=D
-@endframe
-A=M-1
+@retaddr
 A=M
 0;JMP
 // label if_false
@@ -379,8 +378,7 @@ AM=M-1
 D=M
 @LCL
 M=D
-@endframe
-A=M-1
+@retaddr
 A=M
 0;JMP
 // function Sys.init 0
