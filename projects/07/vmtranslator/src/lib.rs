@@ -17,6 +17,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 .truncate(true)
                 .create(true)
                 .open(&config.destination)?;
+    writeln!(output, "// Bootstrap")?;
+    write!(output, "{}", platform::Hack::bootstrap())?;
     match config.source {
         Source::File(filename) => {
             handle_file(&filename, &mut output)?;
@@ -25,8 +27,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             let path = fs::read_dir(directory)?;
             for entry in path {
                 let path = entry?.path();
-                if path.ends_with(".vm") {
-                    handle_file(path.file_name().unwrap().to_str().unwrap(), &mut output)?;
+                if path.extension().unwrap() == "vm" {
+                    handle_file(path.as_os_str().to_str().unwrap(), &mut output)?;
                 }
             }
         }

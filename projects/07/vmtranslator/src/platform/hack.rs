@@ -26,6 +26,10 @@ impl Hack {
         }
     }
 
+    pub fn bootstrap() -> String {
+        format!("@256\nD=A\n@SP\nM=D\n{}", translate_call("Sys$ret", "Sys.init", 0))
+    }
+
     pub fn end() -> String {
         "(END)\n@END\n0;JMP\n".to_string()
     }
@@ -158,6 +162,7 @@ D;JNE
             },
             Command::Call(name, n_args) => {
                 let return_label = format!("{}$ret.{}", self.static_identifier, self.func_counter);
+                self.func_counter += 1;
                 Some(translate_call(&return_label, name, *n_args))
             },
             Command::Function(name, n_vars) => {
@@ -207,7 +212,7 @@ A=M
 M=D
 @SP
 M=M+1
-@ARG
+@SP
 D=M
 @5
 D=D-A
@@ -251,8 +256,7 @@ D=M
 @retaddr
 M=D
 @SP
-M=M-1
-A=M
+AM=M-1
 D=M
 @ARG
 A=M
