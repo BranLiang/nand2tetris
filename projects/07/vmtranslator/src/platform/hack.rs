@@ -26,7 +26,7 @@ impl Hack {
         }
     }
 
-    pub fn end(&self) -> String {
+    pub fn end() -> String {
         "(END)\n@END\n0;JMP\n".to_string()
     }
 }
