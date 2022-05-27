@@ -1,7 +1,10 @@
-use std::fs;
 use std::io;
-use std::str::Chars;
+use std::io::BufRead;
+use std::io::Lines;
+use std::io::BufReader;
+use std::fs::File;
 
+#[derive(Debug)]
 enum Token {
     Keyword(String),
     Symbol(char),
@@ -56,25 +59,15 @@ const SYMBOLS: [char; 19] = [
 ];
 
 struct Tokenizer {
-    tokens: Vec<Token>
+    lines: Lines<BufReader<File>>,
+    current_line: Line
 }
 
 impl Tokenizer {
-    pub fn new(path: &str) -> Result<Self, io::Error> {
-        let mut tokens = Vec::new();
-        let content = fs::read_to_string(path)?;
-        for line in content.lines() {
-            let line = if let Some((non_comment, _comment)) = line.split_once("//") {
-                non_comment
-            } else {
-                line
-            };
-            let line = Line::new(line.trim());
-            for token in line {
-                tokens.push(token);
-            }
-        }
-        Ok(Self { tokens })
+    pub fn new(file: File) -> Result<Self, io::Error> {
+        let lines = BufReader::new(file).lines();
+        let current_line = Line::new("");
+        Ok(Self { lines, current_line })
     }
 }
 
@@ -82,21 +75,35 @@ impl Iterator for Tokenizer {
     type Item=Token;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        if let Some(token) = self.current_line.next() {
+            return Some(token);
+        } else {
+            let line = self.lines.next()?.unwrap();
+            let line = if let Some((non_comment, _comment)) = line.split_once("//") {
+                non_comment.to_string()
+            } else {
+                line
+            };
+            let line = line.trim();
+            self.current_line = Line::new(line);
+            self.next()
+        }
     }
 }
 
-struct Line<'a> {
-    chars: Chars<'a>,
+struct Line {
+    raw_line: String,
+    index: usize,
     current_slice: String,
     current_is_string: bool,
     current_symbol: Option<char>
 }
 
-impl<'a> Line<'a> {
-    pub fn new(line: &'a str) -> Self {
+impl Line {
+    pub fn new(line: &str) -> Self {
         Self {
-            chars: line.chars(),
+            raw_line: line.to_string(),
+            index: 0,
             current_slice: String::new(),
             current_is_string: false,
             current_symbol: None
@@ -128,7 +135,7 @@ impl<'a> Line<'a> {
     }
 }
 
-impl<'a> Iterator for Line<'a> {
+impl Iterator for Line {
     type Item=Token;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -136,8 +143,11 @@ impl<'a> Iterator for Line<'a> {
             self.reset_current();
             return Some(Token::Symbol(symbol));
         }
-        match self.chars.next() {
+        let n = self.index;
+        let char = self.raw_line.chars().nth(n);
+        match char {
             Some(' ') => {
+                self.index += 1;
                 if self.current_is_string {
                     self.current_slice.push(' ');
                     self.next()
@@ -150,6 +160,7 @@ impl<'a> Iterator for Line<'a> {
                 }
             },
             Some('"') => {
+                self.index += 1;
                 if self.current_slice.is_empty() {
                     self.current_is_string = true;
                     self.next()
@@ -160,6 +171,7 @@ impl<'a> Iterator for Line<'a> {
                 }
             },
             Some(ch) if SYMBOLS.contains(&ch) => {
+                self.index += 1;
                 if self.current_is_string {
                     self.current_slice.push(ch);
                     self.next()
@@ -174,10 +186,12 @@ impl<'a> Iterator for Line<'a> {
                 }
             },
             Some(ch) => {
+                self.index += 1;
                 self.current_slice.push(ch);
                 self.next()
             },
             None => {
+                self.index += 1;
                 if self.current_slice.is_empty() {
                     None
                 } else {
@@ -194,6 +208,18 @@ impl<'a> Iterator for Line<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempfile;
+    use std::io::SeekFrom;
+    use std::io::prelude::*;
+
+    fn fixture(content: &str) -> File {
+        let mut file = tempfile().unwrap();
+        for line in content.lines() {
+            writeln!(file, "{}", line).unwrap();
+        }
+        file.seek(SeekFrom::Start(0)).unwrap();
+        file
+    }
 
     #[test]
     fn test_line() {
@@ -267,5 +293,100 @@ mod tests {
         }
 
         assert!(line.next().is_none());
+    }
+
+    #[test]
+    fn test_tokenizer() {
+        let content = "\
+            if (x < 0) {
+                // print the slogan
+                do Output.printString(\"hello world :)\");
+            }
+        ";
+        let file = fixture(content);
+        let mut tokenizer = Tokenizer::new(file).unwrap();
+
+        match tokenizer.next() {
+            Some(Token::Keyword(v)) if v == "if".to_string() => {},
+            _ => panic!("error parsing keyword `if`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Symbol('(')) => {},
+            _ => panic!("error parsing symbol `(`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Identifier(v)) if v == "x".to_string() => {},
+            _ => panic!("error parsing identifier `x`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Symbol('<')) => {},
+            _ => panic!("error parsing symbol `<`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Int(0)) => {},
+            _ => panic!("error parsing integer `0`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Symbol(')')) => {},
+            _ => panic!("error parsing symbol `)`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Symbol('{')) => {},
+            _ => panic!("error parsing symbol `{{`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Keyword(v)) if v == "do".to_string() => {},
+            Some(token) => panic!("error parsing: {:?}", token),
+            _ => panic!("error parsing keyword `do`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Identifier(v)) if v == "Output".to_string() => {},
+            _ => panic!("error parsing identifier `Output`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Symbol('.')) => {},
+            _ => panic!("error parsing symbol `.`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Identifier(v)) if v == "printString".to_string() => {},
+            _ => panic!("error parsing identifier `printString`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Symbol('(')) => {},
+            _ => panic!("error parsing symbol `(`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::String(v)) if v == "hello world :)".to_string() => {},
+            _ => panic!("error parsing string")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Symbol(')')) => {},
+            _ => panic!("error parsing symbol `)`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Symbol(';')) => {},
+            _ => panic!("error parsing symbol `;`")
+        }
+
+        match tokenizer.next() {
+            Some(Token::Symbol('}')) => {},
+            _ => panic!("error parsing symbol `}}`")
+        }
+
+        assert!(tokenizer.next().is_none());
     }
 }
