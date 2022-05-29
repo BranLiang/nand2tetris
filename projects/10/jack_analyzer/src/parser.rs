@@ -1,14 +1,15 @@
+use std::iter::Peekable;
 use crate::tokenizer::Tokenizer;
 use crate::tokenizer::Token;
 
 // ClassParser
 
 struct ClassParser<'a> {
-    tokenizer: &'a mut Tokenizer
+    tokenizer: &'a mut Peekable<Tokenizer>
 }
 
 impl<'a> ClassParser<'a> {
-    pub fn new(tokenizer: &'a mut Tokenizer) -> Self {
+    pub fn new(tokenizer: &'a mut Peekable<Tokenizer>) -> Self {
         ClassParser { tokenizer }
     }
 }
@@ -17,21 +18,23 @@ impl<'a> Iterator for ClassParser<'a> {
     type Item=Class;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.tokenizer.next()? {
-            Token::Keyword(v) if v == "class".to_string() => {
+        match self.tokenizer.peek()? {
+            Token::Keyword(v) if *v == "class".to_string() => {
+                // class keyword
+                self.tokenizer.next()?;
                 // className
-                let name = match self.tokenizer.next() {
-                    Some(Token::Identifier(v)) => ClassName(v),
+                let name = match self.tokenizer.next()? {
+                    Token::Identifier(v) => ClassName(v),
                     _ => return None
                 };
                 // '{'
-                self.tokenizer.next();
+                self.tokenizer.next()?;
                 // classVarDec*
                 let class_var_decs = ClassVarDecParser::new(self.tokenizer).collect();
                 // subroutineDec*
                 let subroutine_decs = SubroutineDecParser::new(self.tokenizer).collect();
                 // '}'
-                self.tokenizer.next();
+                self.tokenizer.next()?;
                 Some(Class { name, class_var_decs, subroutine_decs })
             },
             _ => None
@@ -42,11 +45,11 @@ impl<'a> Iterator for ClassParser<'a> {
 // ClassVarDecParser
 
 struct ClassVarDecParser<'a> {
-    tokenizer: &'a mut Tokenizer
+    tokenizer: &'a mut Peekable<Tokenizer>
 }
 
 impl<'a> ClassVarDecParser<'a> {
-    pub fn new(tokenizer: &'a mut Tokenizer) -> Self {
+    pub fn new(tokenizer: &'a mut Peekable<Tokenizer>) -> Self {
         ClassVarDecParser { tokenizer }
     }
 }
@@ -55,10 +58,11 @@ impl<'a> Iterator for ClassVarDecParser<'a> {
     type Item=ClassVarDec;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.tokenizer.next()? {
+        match self.tokenizer.peek()? {
             Token::Keyword(v)  => {
                 // static | field
                 let dec_type = ClassVarDecType::new(&v)?;
+                self.tokenizer.next();
                 // Type
                 let token = self.tokenizer.next()?;
                 let var_type = Type::new(&token)?;
@@ -67,8 +71,10 @@ impl<'a> Iterator for ClassVarDecParser<'a> {
                     Token::Identifier(v) => VarName(v),
                     _ => return None
                 };
-                // exta_var_names or `;`
+                // exta_var_names
                 let extra_var_names = ExtraVarNameParser::new(self.tokenizer).collect();
+                // `;`
+                self.tokenizer.next()?;
                 Some(ClassVarDec { dec_type, var_type, var_name, extra_var_names })
             },
             _ => None
@@ -79,11 +85,11 @@ impl<'a> Iterator for ClassVarDecParser<'a> {
 // SubroutineDecParser
 
 struct SubroutineDecParser<'a> {
-    tokenizer: &'a mut Tokenizer
+    tokenizer: &'a mut Peekable<Tokenizer>
 }
 
 impl<'a> SubroutineDecParser<'a> {
-    pub fn new(tokenizer: &'a mut Tokenizer) -> Self {
+    pub fn new(tokenizer: &'a mut Peekable<Tokenizer>) -> Self {
         SubroutineDecParser { tokenizer }
     }
 }
@@ -92,10 +98,11 @@ impl<'a> Iterator for SubroutineDecParser<'a> {
     type Item=SubroutineDec;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.tokenizer.next()? {
+        match self.tokenizer.peek()? {
             Token::Keyword(v) => {
                 // constructor | function | method
                 let subroutine_type = SubroutineType::new(&v)?;
+                self.tokenizer.next();
                 // return type
                 let token = self.tokenizer.next()?;
                 let return_type = SubroutineReturnType::new(&token)?;
@@ -106,19 +113,36 @@ impl<'a> Iterator for SubroutineDecParser<'a> {
                 };
                 // `(`
                 self.tokenizer.next();
-                // `)` or Parameter list
+                // Parameter list
                 let mut parameters = Vec::new();
-                let token = self.tokenizer.next()?;
-                if let Some(parameter_type) = Type::new(&token) {
-                    if let Some(Token::Identifier(v)) = self.tokenizer.next() {
-                        parameters.push(Parameter(parameter_type, VarName(v)));
+                match self.tokenizer.peek()? {
+                    Token::Symbol(')') => {},
+                    _ => {
+                        // First parameter
+                        let token = self.tokenizer.next()?;
+                        let parameter_type = Type::new(&token)?;
+                        let var_name = match self.tokenizer.next()? {
+                            Token::Identifier(v) => VarName(v),
+                            _ => return None
+                        };
+                        parameters.push(Parameter(parameter_type, var_name));
+                        // Extra parameters
                         for paramter in ExtraParameterParser::new(self.tokenizer) {
                             parameters.push(paramter);
                         }
                     }
                 }
+                // `)`
+                self.tokenizer.next()?;
                 // subroutineBody
-                let body = SubroutineBody { var_decs: vec![], statements: vec![] };
+                // `{`
+                self.tokenizer.next();
+                // varDec*
+                let var_decs = VarDecParser::new(self.tokenizer).collect();
+                // statements
+                // TODO
+                let body = SubroutineBody { var_decs, statements: vec![] };
+                // `}`
                 self.tokenizer.next();
                 Some(SubroutineDec {
                     subroutine_type,
@@ -133,14 +157,53 @@ impl<'a> Iterator for SubroutineDecParser<'a> {
     }
 }
 
+// VarDecParser
+
+struct VarDecParser<'a> {
+    tokenizer: &'a mut Peekable<Tokenizer>
+}
+
+impl<'a> VarDecParser<'a> {
+    pub fn new(tokenizer: &'a mut Peekable<Tokenizer>) -> Self {
+        VarDecParser { tokenizer }
+    }
+}
+
+impl<'a> Iterator for VarDecParser<'a> {
+    type Item=VarDec;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.tokenizer.peek()? {
+            Token::Keyword(v) if *v == "var".to_string() => {
+                // var
+                self.tokenizer.next();
+                // type
+                let token = self.tokenizer.next()?;
+                let var_type = Type::new(&token)?;
+                // varName
+                let var_name = match self.tokenizer.next()? {
+                    Token::Identifier(v) => VarName(v),
+                    _ => return None
+                };
+                // extra var names
+                let extra_var_names = ExtraVarNameParser::new(self.tokenizer).collect();
+                // `;`
+                self.tokenizer.next()?;
+                Some(VarDec { var_type, var_name, extra_var_names })
+            },
+            _ => None
+        }
+    }
+}
+
 // ExtraVarNameParser
 
 struct ExtraVarNameParser<'a> {
-    tokenizer: &'a mut Tokenizer
+    tokenizer: &'a mut Peekable<Tokenizer>
 }
 
 impl<'a> ExtraVarNameParser<'a> {
-    pub fn new(tokenizer: &'a mut Tokenizer) -> Self {
+    pub fn new(tokenizer: &'a mut Peekable<Tokenizer>) -> Self {
         ExtraVarNameParser { tokenizer }
     }
 }
@@ -149,8 +212,11 @@ impl<'a> Iterator for ExtraVarNameParser<'a> {
     type Item=VarName;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.tokenizer.next()? {
+        match self.tokenizer.peek()? {
             Token::Symbol(',') => {
+                // `,`
+                self.tokenizer.next();
+                // varName
                 match self.tokenizer.next()? {
                     Token::Identifier(v) => Some(VarName(v)),
                     _ => None
@@ -163,11 +229,11 @@ impl<'a> Iterator for ExtraVarNameParser<'a> {
 
 // Parameter parser
 struct ExtraParameterParser<'a> {
-    tokenizer: &'a mut Tokenizer
+    tokenizer: &'a mut Peekable<Tokenizer>
 }
 
 impl<'a> ExtraParameterParser<'a> {
-    pub fn new(tokenizer: &'a mut Tokenizer) -> Self {
+    pub fn new(tokenizer: &'a mut Peekable<Tokenizer>) -> Self {
         ExtraParameterParser { tokenizer }
     }
 }
@@ -176,8 +242,11 @@ impl<'a> Iterator for ExtraParameterParser<'a> {
     type Item=Parameter;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.tokenizer.next()? {
+        match self.tokenizer.peek()? {
             Token::Symbol(',') => {
+                // `,`
+                self.tokenizer.next();
+                // type varName
                 let token = self.tokenizer.next()?;
                 let var_type = Type::new(&token)?;
                 match self.tokenizer.next()? {
@@ -390,13 +459,13 @@ mod tests {
     use std::io::SeekFrom;
     use std::io::prelude::*;
 
-    fn fixture_tokenizer(content: &str) -> Tokenizer {
+    fn fixture_tokenizer(content: &str) -> Peekable<Tokenizer> {
         let mut file = tempfile().unwrap();
         for line in content.lines() {
             writeln!(file, "{}", line).unwrap();
         }
         file.seek(SeekFrom::Start(0)).unwrap();
-        Tokenizer::new(file).unwrap()
+        Tokenizer::new(file).unwrap().peekable()
     }
 
     #[test]
@@ -557,5 +626,53 @@ mod tests {
         //     _ => panic!("error parsing subroutine name")
         // }
         // assert!(parameters.is_empty());
+    }
+
+    #[test]
+    fn var_dec_parser() {
+        let mut tokenizer = fixture_tokenizer("\
+            var int age, weight, height;
+            var String name;
+        ");
+        let mut parser = VarDecParser::new(&mut tokenizer);
+
+        let VarDec {
+            var_type,
+            var_name,
+            extra_var_names
+        } = parser.next().unwrap();
+        match var_type {
+            Type::Int => {},
+            _ => panic!("error parsing var type")
+        }
+        match var_name {
+            VarName(v) if v == "age".to_string() => {},
+            _ => panic!("error parsing var_name")
+        }
+        let mut extra_var_names = extra_var_names.iter();
+        match extra_var_names.next().unwrap() {
+            VarName(v) if *v == "weight".to_string() => {},
+            _ => panic!("errpr parsing weight")
+        }
+        match extra_var_names.next().unwrap() {
+            VarName(v) if *v == "height".to_string() => {},
+            _ => panic!("errpr parsing weight")
+        }
+        assert!(extra_var_names.next().is_none());
+
+        let VarDec {
+            var_type,
+            var_name,
+            extra_var_names
+        } = parser.next().unwrap();
+        match var_type {
+            Type::ClassName(v) if v == "String".to_string() => {},
+            _ => panic!("error parsing var type")
+        }
+        match var_name {
+            VarName(v) if v == "name".to_string() => {},
+            _ => panic!("error parsing var_name")
+        }
+        assert!(extra_var_names.is_empty());
     }
 }
