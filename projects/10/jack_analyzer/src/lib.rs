@@ -2,7 +2,8 @@ use std::env::Args;
 use std::error::Error;
 use std::path::Path;
 
-mod tokenizer;
+pub mod tokenizer;
+mod parser;
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     Ok(())
