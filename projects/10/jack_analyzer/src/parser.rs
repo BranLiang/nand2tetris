@@ -314,6 +314,43 @@ impl<'a> Iterator for StatementParser<'a> {
                     };
                     Some(Statement::Let(statement))
                 },
+                "if" => {
+                    // if
+                    self.tokenizer.next()?;
+                    // `(`
+                    self.tokenizer.next()?;
+                    // expression
+                    let expression = Expression::parse(self.tokenizer)?;
+                    // `)`
+                    self.tokenizer.next()?;
+                    // `{`
+                    self.tokenizer.next()?;
+                    // if statements
+                    let if_statements: Statements = StatementParser::new(self.tokenizer).collect();
+                    // `}`
+                    self.tokenizer.next()?;
+                    // else statements
+                    let else_statements = match self.tokenizer.peek()? {
+                        Token::Keyword(v) if v.as_str() == "else" => {
+                            // else
+                            self.tokenizer.next();
+                            // `{`
+                            self.tokenizer.next();
+                            // statements
+                            let statements: Statements = StatementParser::new(self.tokenizer).collect();
+                            // `}`
+                            self.tokenizer.next();
+                            Some(statements)
+                        },
+                        _ => None
+                    };
+                    let statement = IfStatement {
+                        expression,
+                        if_statements,
+                        else_statements,
+                    };
+                    Some(Statement::If(Box::new(statement)))
+                },
                 _ => None
             }
         } else {
@@ -1125,6 +1162,48 @@ mod tests {
                 assert_eq!(v.as_str(), "b");
                 assert!(extra_op_terms.is_empty());
                 assert!(extra_op_terms_1.is_empty());
+            },
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn if_statement() {
+        let mut tokenizer = fixture_tokenizer("\
+            if (true) {
+                let a = 1;
+            } else {
+                let b = 2;
+            }
+        ");
+        let mut iter = StatementParser::new(&mut tokenizer);
+        match iter.next().unwrap() {
+            Statement::If(statement) => {
+                match *statement {
+                    IfStatement {
+                        expression: Expression {
+                            term: Term::KeywordConstant(
+                                KeywordConstant::True
+                            ),
+                            extra_op_terms,
+                        },
+                        if_statements,
+                        else_statements: Some(else_statements),
+                    } => {
+                        assert!(extra_op_terms.is_empty());
+                        assert_eq!(1, if_statements.len());
+                        assert_eq!(1, else_statements.len());
+                        match if_statements.first().unwrap() {
+                            Statement::Let(_) => {},
+                            _ => panic!()
+                        }
+                        match else_statements.first().unwrap() {
+                            Statement::Let(_) => {},
+                            _ => panic!()
+                        }
+                    },
+                    _ => panic!()
+                }
             },
             _ => panic!()
         }
