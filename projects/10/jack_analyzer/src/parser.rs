@@ -140,8 +140,8 @@ impl<'a> Iterator for SubroutineDecParser<'a> {
                 // varDec*
                 let var_decs = VarDecParser::new(self.tokenizer).collect();
                 // statements
-                // TODO
-                let body = SubroutineBody { var_decs, statements: vec![] };
+                let statements = StatementParser::new(self.tokenizer).collect();
+                let body = SubroutineBody { var_decs, statements };
                 // `}`
                 self.tokenizer.next();
                 Some(SubroutineDec {
@@ -259,6 +259,178 @@ impl<'a> Iterator for ExtraParameterParser<'a> {
             _ => None
         }
         
+    }
+}
+
+// StatementParser
+
+struct StatementParser<'a> {
+    tokenizer: &'a mut Peekable<Tokenizer>
+}
+
+impl<'a> StatementParser<'a> {
+    pub fn new(tokenizer: &'a mut Peekable<Tokenizer>) -> Self {
+        StatementParser { tokenizer }
+    }
+}
+
+impl<'a> Iterator for StatementParser<'a> {
+    type Item=Statement;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Token::Keyword(v) = self.tokenizer.peek()? {
+            match v.as_str() {
+                "let" => {
+                    // let
+                    self.tokenizer.next();
+                    // varName
+                    let var_name = match self.tokenizer.next()? {
+                        Token::Identifier(v) => VarName(v),
+                        _ => return None
+                    };
+                    // [ expression ]
+                    let index_expression = match self.tokenizer.peek()? {
+                        Token::Symbol('[') => {
+                            // '['
+                            self.tokenizer.next();
+                            // expression
+                            let expression: Expression = Expression::parse(self.tokenizer)?;
+                            // ']'
+                            self.tokenizer.next();
+                            Some(expression)
+                        },
+                        _ => None
+                    };
+                    // `=`
+                    self.tokenizer.next()?;
+                    // expression
+                    let expression: Expression = Expression::parse(self.tokenizer)?;
+                    // `;`
+                    self.tokenizer.next()?;
+                    let statement = LetStatement {
+                        var_name,
+                        index_expression,
+                        expression
+                    };
+                    Some(Statement::Let(statement))
+                },
+                _ => None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+// ExtraExpressionParser
+
+struct ExtraExpressionParser<'a> {
+    tokenizer: &'a mut Peekable<Tokenizer>
+}
+
+impl<'a> ExtraExpressionParser<'a> {
+    pub fn new(tokenizer: &'a mut Peekable<Tokenizer>) -> Self {
+        ExtraExpressionParser { tokenizer }
+    }
+}
+
+impl<'a> Iterator for ExtraExpressionParser<'a> {
+    type Item=Expression;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.tokenizer.peek()? {
+            Token::Symbol(',') => {
+                // `,`
+                self.tokenizer.next();
+                Expression::parse(self.tokenizer)
+            },
+            _ => None
+        }
+    }
+}
+
+// ExtraOpTermsParser
+
+struct ExtraOpTermsParser<'a> {
+    tokenizer: &'a mut Peekable<Tokenizer>
+}
+
+impl<'a> ExtraOpTermsParser<'a> {
+    pub fn new(tokenizer: &'a mut Peekable<Tokenizer>) -> Self {
+        ExtraOpTermsParser { tokenizer }
+    }
+}
+
+impl<'a> Iterator for ExtraOpTermsParser<'a> {
+    type Item=OpTerm;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.tokenizer.peek()? {
+            Token::Symbol('+') => {
+                // `unaryOp`
+                self.tokenizer.next();
+                // term
+                let term = Term::parse(self.tokenizer)?;
+                Some(OpTerm(Op::Plus, term))
+            },
+            Token::Symbol('-') => {
+                // `unaryOp`
+                self.tokenizer.next();
+                // term
+                let term = Term::parse(self.tokenizer)?;
+                Some(OpTerm(Op::Minus, term))
+            },
+            Token::Symbol('*') => {
+                // `unaryOp`
+                self.tokenizer.next();
+                // term
+                let term = Term::parse(self.tokenizer)?;
+                Some(OpTerm(Op::Multiply, term))
+            },
+            Token::Symbol('/') => {
+                // `unaryOp`
+                self.tokenizer.next();
+                // term
+                let term = Term::parse(self.tokenizer)?;
+                Some(OpTerm(Op::Divide, term))
+            },
+            Token::Symbol('&') => {
+                // `unaryOp`
+                self.tokenizer.next();
+                // term
+                let term = Term::parse(self.tokenizer)?;
+                Some(OpTerm(Op::And, term))
+            },
+            Token::Symbol('|') => {
+                // `unaryOp`
+                self.tokenizer.next();
+                // term
+                let term = Term::parse(self.tokenizer)?;
+                Some(OpTerm(Op::Or, term))
+            },
+            Token::Symbol('<') => {
+                // `unaryOp`
+                self.tokenizer.next();
+                // term
+                let term = Term::parse(self.tokenizer)?;
+                Some(OpTerm(Op::Lt, term))
+            },
+            Token::Symbol('>') => {
+                // `unaryOp`
+                self.tokenizer.next();
+                // term
+                let term = Term::parse(self.tokenizer)?;
+                Some(OpTerm(Op::Gt, term))
+            },
+            Token::Symbol('=') => {
+                // `unaryOp`
+                self.tokenizer.next();
+                // term
+                let term = Term::parse(self.tokenizer)?;
+                Some(OpTerm(Op::Eq, term))
+            },
+            _ => None
+        }
     }
 }
 
@@ -411,6 +583,28 @@ struct Expression {
     extra_op_terms: Vec<OpTerm>
 }
 
+impl Expression {
+    pub fn parse_list(tokenizer: &mut Peekable<Tokenizer>) -> Vec<Expression> {
+        let mut expression_list: Vec<Expression> = Vec::new();
+        if let Some(expression) = Expression::parse(tokenizer) {
+            expression_list.push(expression);
+            for expression in ExtraExpressionParser::new(tokenizer) {
+                expression_list.push(expression);
+            }
+        }
+        expression_list
+    }
+
+    pub fn parse(tokenizer: &mut Peekable<Tokenizer>) -> Option<Self> {
+        let term = Term::parse(tokenizer)?;
+        let extra_op_terms = ExtraOpTermsParser::new(tokenizer).collect();
+        Some(Expression {
+            term,
+            extra_op_terms,
+        })
+    }
+}
+
 enum Term {
     IntegerConstant(i16),
     StringConstant(String),
@@ -420,6 +614,112 @@ enum Term {
     Call(SubroutineCall),
     Expression(Box<Expression>),
     WithUnary(UnaryOp, Box<Term>)
+}
+
+impl Term {
+    pub fn parse(tokenizer: &mut Peekable<Tokenizer>) -> Option<Self> {
+        let token = (*tokenizer.peek()?).clone();
+        match token {
+            Token::Int(v) => {
+                tokenizer.next();
+                Some(Term::IntegerConstant(v))
+            },
+            Token::String(v) => {
+                tokenizer.next();
+                Some(Term::StringConstant(v))
+            },
+            Token::Keyword(v) if v.as_str() == "true" => {
+                tokenizer.next();
+                Some(Term::KeywordConstant(KeywordConstant::True))
+            },
+            Token::Keyword(v) if v.as_str() == "false" => {
+                tokenizer.next();
+                Some(Term::KeywordConstant(KeywordConstant::False))
+            },
+            Token::Keyword(v) if v.as_str() == "null" => {
+                tokenizer.next();
+                Some(Term::KeywordConstant(KeywordConstant::Null))
+            },
+            Token::Keyword(v) if v.as_str() == "this" => {
+                tokenizer.next();
+                Some(Term::KeywordConstant(KeywordConstant::This))
+            },
+            Token::Identifier(v) => {
+                tokenizer.next();
+                match tokenizer.peek() {
+                    Some(Token::Symbol('[')) => {
+                        // `[`
+                        tokenizer.next();
+                        // expression
+                        let expression = Expression::parse(tokenizer)?;
+                        // `]`
+                        tokenizer.next();
+                        Some(Term::IndexVar(v, Box::new(expression)))
+                    },
+                    Some(Token::Symbol('(')) => {
+                        // `(`
+                        tokenizer.next();
+                        // expressionList
+                        let expression_list = Expression::parse_list(tokenizer);
+                        // `)`
+                        tokenizer.next();
+                        let subroutine_call = SubroutineCall {
+                            caller: None,
+                            subroutine_name: SubroutineName(v),
+                            expression_list
+                        };
+                        Some(Term::Call(subroutine_call))
+                    },
+                    Some(Token::Symbol('.')) => {
+                        // `.`
+                        tokenizer.next();
+                        // subroutineName
+                        let subroutine_name = match tokenizer.next()? {
+                            Token::Identifier(v) => SubroutineName(v),
+                            _ => return None
+                        };
+                        // `(`
+                        tokenizer.next();
+                        // expressionList
+                        let expression_list = Expression::parse_list(tokenizer);
+                        // `)`
+                        tokenizer.next();
+                        let subroutine_call = SubroutineCall {
+                            caller: Some(v),
+                            subroutine_name,
+                            expression_list
+                        };
+                        Some(Term::Call(subroutine_call))
+                    },
+                    _ => Some(Term::VarName(v))
+                }
+            },
+            Token::Symbol('(') => {
+                // `(`
+                tokenizer.next();
+                // expression
+                let expression = Expression::parse(tokenizer)?;
+                // `)`
+                tokenizer.next();
+                Some(Term::Expression(Box::new(expression)))
+            },
+            Token::Symbol('-') => {
+                // unaryOp
+                tokenizer.next();
+                // term
+                let term = Term::parse(tokenizer)?;
+                Some(Term::WithUnary(UnaryOp::Negative, Box::new(term)))
+            },
+            Token::Symbol('~') => {
+                // unaryOp
+                tokenizer.next();
+                // term
+                let term = Term::parse(tokenizer)?;
+                Some(Term::WithUnary(UnaryOp::Not, Box::new(term)))
+            },
+            _ => return None
+        }
+    }
 }
 
 struct SubroutineCall {
@@ -456,6 +756,7 @@ enum Op {
 mod tests {
     use super::*;
     use tempfile::tempfile;
+    use core::panic;
     use std::io::SeekFrom;
     use std::io::prelude::*;
 
@@ -674,5 +975,158 @@ mod tests {
             _ => panic!("error parsing var_name")
         }
         assert!(extra_var_names.is_empty());
+    }
+
+    #[test]
+    fn basic_expression_parser() {
+        let mut tokenizer = fixture_tokenizer("a+b");
+        let expression = Expression::parse(&mut tokenizer).unwrap();
+        match expression {
+            Expression { term: Term::VarName(a), extra_op_terms } if a == "a".to_string() => {
+                let mut iter = extra_op_terms.iter();
+                match iter.next().unwrap() {
+                    OpTerm(Op::Plus, Term::VarName(v)) if v.as_str() == "b" => {},
+                    _ => panic!("error parsing op term `+b`")
+                }
+                assert!(iter.next().is_none());
+            },
+            _ => panic!("error parsing expression `a+b`")
+        }
+    }
+
+    #[test]
+    fn complex_expression_parser() {
+        let mut tokenizer = fixture_tokenizer("\
+            -a - bob.age() / (get_max(size, 1) + alex[2])
+        ");
+        let expression = Expression::parse(&mut tokenizer).unwrap();
+        match expression {
+            Expression { term: Term::WithUnary(UnaryOp::Negative, t), extra_op_terms } => {
+                match *t {
+                    Term::VarName(v) => assert_eq!(v.as_str(), "a"),
+                    _ => panic!("error parsing term `-a`")
+                }
+                let mut iter = extra_op_terms.into_iter();
+                match iter.next().unwrap() {
+                    OpTerm(
+                        Op::Minus,
+                        Term::Call(
+                            SubroutineCall {
+                                caller, 
+                                subroutine_name: SubroutineName(v),
+                                expression_list
+                            }
+                        )
+                    ) => {
+                        assert_eq!(caller, Some("bob".to_string()));
+                        assert_eq!(v, "age".to_string());
+                        assert!(expression_list.is_empty());
+                    },
+                    _ => panic!("error parsing op term `- bob.age`")
+                }
+                match iter.next().unwrap() {
+                    OpTerm(
+                        Op::Divide,
+                        Term::Expression(expression)
+                    ) => {
+                        match *expression {
+                            Expression {
+                                term: Term::Call(
+                                    SubroutineCall {
+                                        caller,
+                                        subroutine_name: SubroutineName(v),
+                                        expression_list,
+                                    }
+                                ),
+                                extra_op_terms,
+                            } => {
+                                assert_eq!(caller, None);
+                                assert_eq!(v, "get_max".to_string());
+                                let mut iter = expression_list.into_iter();
+                                match iter.next().unwrap() {
+                                    Expression { term: Term::VarName(v), extra_op_terms } => {
+                                        assert_eq!(v, "size".to_string());
+                                        assert!(extra_op_terms.is_empty());
+                                    },
+                                    _ => panic!()
+                                }
+                                match iter.next().unwrap() {
+                                    Expression { term: Term::IntegerConstant(v), extra_op_terms } => {
+                                        assert_eq!(v, 1);
+                                        assert!(extra_op_terms.is_empty());
+                                    },
+                                    _ => panic!()
+                                }
+                                let mut iter = extra_op_terms.into_iter();
+                                match iter.next().unwrap() {
+                                    OpTerm(Op::Plus, Term::IndexVar(v, expression)) => {
+                                        assert_eq!(v.as_str(), "alex");
+                                        match *expression {
+                                            Expression { term: Term::IntegerConstant(2), extra_op_terms } => {
+                                                assert!(extra_op_terms.is_empty())
+                                            },
+                                            _ => panic!()
+                                        }
+                                    },
+                                    _ => panic!()
+                                }
+
+                            },
+                            _ => panic!()
+                        }
+                    },
+                    _ => panic!("error parsing expression `/ (get_max(size, 1) + alex[2]`")
+                }
+                assert!(iter.next().is_none());
+            },
+            _ => panic!("error parsing complex expression")
+        }
+    }
+
+    #[test]
+    fn let_statement() {
+        let mut tokenizer = fixture_tokenizer("\
+            let a = 1;
+            let b[1] = 2;
+        ");
+        let mut iter = StatementParser::new(&mut tokenizer);
+        match iter.next().unwrap() {
+            Statement::Let(
+                LetStatement {
+                    var_name: VarName(v),
+                    index_expression: None,
+                    expression: Expression {
+                        term: Term::IntegerConstant(1),
+                        extra_op_terms
+                    }
+                }
+            ) => {
+                assert_eq!(v.as_str(), "a");
+                assert!(extra_op_terms.is_empty());
+            },
+            _ => panic!()
+        }
+        match iter.next().unwrap() {
+            Statement::Let(
+                LetStatement {
+                    var_name: VarName(v),
+                    index_expression: Some(
+                        Expression {
+                            term: Term::IntegerConstant(1),
+                            extra_op_terms: extra_op_terms_1
+                        }
+                    ),
+                    expression: Expression {
+                        term: Term::IntegerConstant(2),
+                        extra_op_terms
+                    }
+                }
+            ) => {
+                assert_eq!(v.as_str(), "b");
+                assert!(extra_op_terms.is_empty());
+                assert!(extra_op_terms_1.is_empty());
+            },
+            _ => panic!()
+        }
     }
 }

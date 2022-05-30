@@ -4,7 +4,7 @@ use std::io::Lines;
 use std::io::BufReader;
 use std::fs::File;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Token {
     Keyword(String),
     Symbol(char),
@@ -58,6 +58,7 @@ const SYMBOLS: [char; 19] = [
     '~'
 ];
 
+#[derive(Debug)]
 pub struct Tokenizer {
     lines: Lines<BufReader<File>>,
     current_line: Line
@@ -91,6 +92,7 @@ impl Iterator for Tokenizer {
     }
 }
 
+#[derive(Debug)]
 struct Line {
     raw_line: String,
     index: usize,
