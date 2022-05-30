@@ -21,20 +21,20 @@ impl<'a> Iterator for ClassParser<'a> {
         match self.tokenizer.peek()? {
             Token::Keyword(v) if *v == "class".to_string() => {
                 // class keyword
-                self.tokenizer.next()?;
+                self.tokenizer.next();
                 // className
                 let name = match self.tokenizer.next()? {
                     Token::Identifier(v) => ClassName(v),
                     _ => return None
                 };
                 // '{'
-                self.tokenizer.next()?;
+                assert_symbol(&self.tokenizer.next()?, '{');
                 // classVarDec*
                 let class_var_decs = ClassVarDecParser::new(self.tokenizer).collect();
                 // subroutineDec*
                 let subroutine_decs = SubroutineDecParser::new(self.tokenizer).collect();
                 // '}'
-                self.tokenizer.next()?;
+                assert_symbol(&self.tokenizer.next()?, '}');
                 Some(Class { name, class_var_decs, subroutine_decs })
             },
             _ => None
@@ -74,7 +74,7 @@ impl<'a> Iterator for ClassVarDecParser<'a> {
                 // exta_var_names
                 let extra_var_names = ExtraVarNameParser::new(self.tokenizer).collect();
                 // `;`
-                self.tokenizer.next()?;
+                assert_symbol(&self.tokenizer.next()?, ';');
                 Some(ClassVarDec { dec_type, var_type, var_name, extra_var_names })
             },
             _ => None
@@ -112,7 +112,7 @@ impl<'a> Iterator for SubroutineDecParser<'a> {
                     _ => return None
                 };
                 // `(`
-                self.tokenizer.next();
+                assert_symbol(&self.tokenizer.next()?, '(');
                 // Parameter list
                 let mut parameters = Vec::new();
                 match self.tokenizer.peek()? {
@@ -133,17 +133,17 @@ impl<'a> Iterator for SubroutineDecParser<'a> {
                     }
                 }
                 // `)`
-                self.tokenizer.next()?;
+                assert_symbol(&self.tokenizer.next()?, ')');
                 // subroutineBody
                 // `{`
-                self.tokenizer.next();
+                assert_symbol(&self.tokenizer.next()?, '{');
                 // varDec*
                 let var_decs = VarDecParser::new(self.tokenizer).collect();
                 // statements
                 let statements = StatementParser::new(self.tokenizer).collect();
                 let body = SubroutineBody { var_decs, statements };
                 // `}`
-                self.tokenizer.next();
+                assert_symbol(&self.tokenizer.next()?, '}');
                 Some(SubroutineDec {
                     subroutine_type,
                     return_type,
@@ -188,7 +188,7 @@ impl<'a> Iterator for VarDecParser<'a> {
                 // extra var names
                 let extra_var_names = ExtraVarNameParser::new(self.tokenizer).collect();
                 // `;`
-                self.tokenizer.next()?;
+                assert_symbol(&self.tokenizer.next()?, ';');
                 Some(VarDec { var_type, var_name, extra_var_names })
             },
             _ => None
@@ -296,17 +296,17 @@ impl<'a> Iterator for StatementParser<'a> {
                             // expression
                             let expression: Expression = Expression::parse(self.tokenizer)?;
                             // ']'
-                            self.tokenizer.next();
+                            assert_symbol(&self.tokenizer.next()?, ']');
                             Some(expression)
                         },
                         _ => None
                     };
                     // `=`
-                    self.tokenizer.next()?;
+                    assert_symbol(&self.tokenizer.next()?, '=');
                     // expression
                     let expression: Expression = Expression::parse(self.tokenizer)?;
                     // `;`
-                    self.tokenizer.next()?;
+                    assert_symbol(&self.tokenizer.next()?, ';');
                     let statement = LetStatement {
                         var_name,
                         index_expression,
@@ -318,28 +318,28 @@ impl<'a> Iterator for StatementParser<'a> {
                     // if
                     self.tokenizer.next()?;
                     // `(`
-                    self.tokenizer.next()?;
+                    assert_symbol(&self.tokenizer.next()?, '(');
                     // expression
                     let expression = Expression::parse(self.tokenizer)?;
                     // `)`
-                    self.tokenizer.next()?;
+                    assert_symbol(&self.tokenizer.next()?, ')');
                     // `{`
-                    self.tokenizer.next()?;
+                    assert_symbol(&self.tokenizer.next()?, '{');
                     // if statements
                     let if_statements: Statements = StatementParser::new(self.tokenizer).collect();
                     // `}`
-                    self.tokenizer.next()?;
+                    assert_symbol(&self.tokenizer.next()?, '}');
                     // else statements
                     let else_statements = match self.tokenizer.peek()? {
                         Token::Keyword(v) if v.as_str() == "else" => {
                             // else
                             self.tokenizer.next();
                             // `{`
-                            self.tokenizer.next();
+                            assert_symbol(&self.tokenizer.next()?, '{');
                             // statements
                             let statements: Statements = StatementParser::new(self.tokenizer).collect();
                             // `}`
-                            self.tokenizer.next();
+                            assert_symbol(&self.tokenizer.next()?, '}');
                             Some(statements)
                         },
                         _ => None
@@ -511,14 +511,6 @@ impl<'a> Iterator for ExtraOpTermsParser<'a> {
 }
 
 // Helpers
-
-fn assert_keyword(token: &Token, keyword: &str) {
-    match token {
-        Token::Keyword(v) if v.as_str() == keyword => {},
-        _ => panic!("{} doesn't match {:?}", keyword, token)
-    }
-}
-
 fn assert_symbol(token: &Token, symbol: char) {
     match token {
         Token::Symbol(v) if *v == symbol => {},
@@ -741,7 +733,7 @@ impl Term {
                         // expression
                         let expression = Expression::parse(tokenizer)?;
                         // `]`
-                        tokenizer.next();
+                        assert_symbol(&tokenizer.next()?, ']');
                         Some(Term::IndexVar(v, Box::new(expression)))
                     },
                     Some(Token::Symbol('(')) => {
@@ -750,7 +742,7 @@ impl Term {
                         // expressionList
                         let expression_list = Expression::parse_list(tokenizer);
                         // `)`
-                        tokenizer.next();
+                        assert_symbol(&tokenizer.next()?, ')');
                         let subroutine_call = SubroutineCall {
                             caller: None,
                             subroutine_name: SubroutineName(v),
@@ -767,11 +759,11 @@ impl Term {
                             _ => return None
                         };
                         // `(`
-                        tokenizer.next();
+                        assert_symbol(&tokenizer.next()?, '(');
                         // expressionList
                         let expression_list = Expression::parse_list(tokenizer);
                         // `)`
-                        tokenizer.next();
+                        assert_symbol(&tokenizer.next()?, ')');
                         let subroutine_call = SubroutineCall {
                             caller: Some(v),
                             subroutine_name,
@@ -788,7 +780,7 @@ impl Term {
                 // expression
                 let expression = Expression::parse(tokenizer)?;
                 // `)`
-                tokenizer.next();
+                assert_symbol(&tokenizer.next()?, ')');
                 Some(Term::Expression(Box::new(expression)))
             },
             Token::Symbol('-') => {
