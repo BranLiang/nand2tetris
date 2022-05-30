@@ -991,70 +991,64 @@ mod tests {
     #[test]
     fn subroutine_dec_parser() {
         let mut tokenizer = fixture_tokenizer("\
-            constructor People new(int age, String name) {}
+            constructor People new(int age, String name) {
+                var int a;
+                let b = 1;
+            }
             method int age() {}
         ");
         let mut parser = SubroutineDecParser::new(&mut tokenizer);
 
-        let SubroutineDec {
-            subroutine_type,
-            return_type,
-            name,
-            parameters,
-            body
-        } = parser.next().unwrap();
-        match subroutine_type {
-            SubroutineType::Constructor => {},
-            _ => panic!("error parsing subroutine type")
-        }
-        match return_type {
-            SubroutineReturnType::General(v) => {
-                match v {
-                    Type::ClassName(c) if c == "People".to_string() => {},
-                    _ => panic!("error parsing return type 1")
+        match parser.next().unwrap() {
+            SubroutineDec {
+                subroutine_type: SubroutineType::Constructor,
+                return_type: SubroutineReturnType::General(
+                    Type::ClassName(a)
+                ),
+                name: SubroutineName(v),
+                parameters,
+                body: SubroutineBody {
+                    var_decs,
+                    statements
                 }
+            } => {
+                assert_eq!(a.as_str(), "People");
+                assert_eq!(v.as_str(), "new");
+                let mut parameters = parameters.iter();
+                match parameters.next().unwrap() {
+                    Parameter(Type::Int, VarName(n)) if *n == "age".to_string() => {},
+                    _ => panic!("error parsing parameter int age")
+                }
+                match parameters.next().unwrap() {
+                    Parameter(Type::ClassName(c), VarName(n)) if *c == "String".to_string() && *n == "name".to_string() => {},
+                    _ => panic!("error parsing parameter String name")
+                }
+                assert_eq!(1, var_decs.len());
+                assert_eq!(1, statements.len());
             },
-            _ => panic!("error parsing return type 2")
-        }
-        match name {
-            SubroutineName(v) if v == "new".to_string() => {},
-            _ => panic!("error parsing subroutine name")
-        }
-        let mut parameters = parameters.iter();
-        match parameters.next().unwrap() {
-            Parameter(Type::Int, VarName(n)) if *n == "age".to_string() => {},
-            _ => panic!("error parsing parameter int age")
-        }
-        match parameters.next().unwrap() {
-            Parameter(Type::ClassName(c), VarName(n)) if *c == "String".to_string() && *n == "name".to_string() => {},
-            _ => panic!("error parsing parameter String name")
+            _ => panic!()
         }
 
-        // let SubroutineDec {
-        //     subroutine_type,
-        //     return_type,
-        //     name,
-        //     parameters,
-        //     body
-        // } = parser.next().unwrap();
-        // match subroutine_type {
-        //     SubroutineType::Method => {},
-        //     _ => panic!("error parsing subroutine type")
-        // }
-        // match return_type {
-        //     SubroutineReturnType::General(v) => {
-        //         match v {
-        //             Type::Int => {},
-        //             _ => panic!("error parsing return type 1")
-        //         }
-        //     },
-        //     _ => panic!("error parsing return type 2")
-        // }
-        // match name {
-        //     SubroutineName(v) if v == "age".to_string() => {},
-        //     _ => panic!("error parsing subroutine name")
-        // }
-        // assert!(parameters.is_empty());
+        match parser.next().unwrap() {
+            SubroutineDec {
+                subroutine_type: SubroutineType::Method,
+                return_type: SubroutineReturnType::General(
+                    Type::Int
+                ),
+                name: SubroutineName(v),
+                parameters,
+                body: SubroutineBody {
+                    var_decs,
+                    statements
+                }
+            } => {
+                assert!(parameters.is_empty());
+                assert_eq!(v.as_str(), "age");
+                assert!(var_decs.is_empty());
+                assert!(statements.is_empty());
+            },
+            _ => panic!()
+        }
     }
 
     #[test]
