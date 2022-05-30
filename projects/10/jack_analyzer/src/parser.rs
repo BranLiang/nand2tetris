@@ -372,6 +372,14 @@ impl<'a> Iterator for StatementParser<'a> {
                     };
                     Some(Statement::While(Box::new(statement)))
                 },
+                "do" => {
+                    // do
+                    self.tokenizer.next();
+                    // subroutineCall
+                    let subroutine_call = SubroutineCall::parse(self.tokenizer)?;
+                    let statement = DoStatement(subroutine_call);
+                    Some(Statement::Do(statement))
+                },
                 _ => None
             }
         } else {
@@ -800,6 +808,54 @@ struct SubroutineCall {
     caller: Option<String>,
     subroutine_name: SubroutineName,
     expression_list: Vec<Expression>,
+}
+
+impl SubroutineCall {
+    pub fn parse(tokenizer: &mut Peekable<Tokenizer>) -> Option<Self> {
+        match tokenizer.next()? {
+            Token::Identifier(v) => {
+                match tokenizer.peek()? {
+                    Token::Symbol('(') => {
+                        // `(`
+                        assert_symbol(&tokenizer.next()?, '(');
+                        // expressionList
+                        let expression_list = Expression::parse_list(tokenizer);
+                        // `)`
+                        assert_symbol(&tokenizer.next()?, ')');
+                        let subroutine_call = SubroutineCall {
+                            caller: None,
+                            subroutine_name: SubroutineName(v),
+                            expression_list
+                        };
+                        Some(subroutine_call)
+                    },
+                    Token::Symbol('.') => {
+                        // `.`
+                        assert_symbol(&tokenizer.next()?, '.');
+                        // subroutineName
+                        let subroutine_name = match tokenizer.next()? {
+                            Token::Identifier(v) => SubroutineName(v),
+                            _ => return None
+                        };
+                        // `(`
+                        assert_symbol(&tokenizer.next()?, '(');
+                        // expressionList
+                        let expression_list = Expression::parse_list(tokenizer);
+                        // `)`
+                        assert_symbol(&tokenizer.next()?, ')');
+                        let subroutine_call = SubroutineCall {
+                            caller: Some(v),
+                            subroutine_name,
+                            expression_list
+                        };
+                        Some(subroutine_call)
+                    },
+                    _ => None
+                }
+            },
+            _ => None
+        }
+    }
 }
 
 enum KeywordConstant {
@@ -1271,6 +1327,30 @@ mod tests {
                     },
                     _ => panic!()
                 }
+            },
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn do_statement() {
+        let mut tokenizer = fixture_tokenizer("\
+            do get_max();
+        ");
+        let mut iter = StatementParser::new(&mut tokenizer);
+        match iter.next().unwrap() {
+            Statement::Do(
+                DoStatement(
+                    SubroutineCall {
+                        caller,
+                        subroutine_name: SubroutineName(v),
+                        expression_list,
+                    }
+                )
+            ) => {
+                assert_eq!(caller, None);
+                assert_eq!(v.as_str(), "get_max");
+                assert!(expression_list.is_empty());
             },
             _ => panic!()
         }
