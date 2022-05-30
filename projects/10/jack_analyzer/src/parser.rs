@@ -377,8 +377,18 @@ impl<'a> Iterator for StatementParser<'a> {
                     self.tokenizer.next();
                     // subroutineCall
                     let subroutine_call = SubroutineCall::parse(self.tokenizer)?;
-                    let statement = DoStatement(subroutine_call);
-                    Some(Statement::Do(statement))
+                    // `;`
+                    assert_symbol(&self.tokenizer.next()?, ';');
+                    Some(Statement::Do(subroutine_call))
+                },
+                "return" => {
+                    // return
+                    self.tokenizer.next();
+                    // expression
+                    let expression = Expression::parse(self.tokenizer);
+                    // `;`
+                    assert_symbol(&self.tokenizer.next()?, ';');
+                    Some(Statement::Return(expression))
                 },
                 _ => None
             }
@@ -631,8 +641,8 @@ enum Statement {
     Let(LetStatement),
     If(Box<IfStatement>),
     While(Box<WhileStatement>),
-    Do(DoStatement),
-    Return(ReturnStatement)
+    Do(SubroutineCall),
+    Return(Option<Expression>)
 }
 
 struct LetStatement {
@@ -651,10 +661,6 @@ struct WhileStatement {
     expression: Expression,
     statements: Statements
 }
-
-struct DoStatement(SubroutineCall);
-
-struct ReturnStatement(Option<Expression>);
 
 // Expressions
 
@@ -1340,17 +1346,36 @@ mod tests {
         let mut iter = StatementParser::new(&mut tokenizer);
         match iter.next().unwrap() {
             Statement::Do(
-                DoStatement(
-                    SubroutineCall {
-                        caller,
-                        subroutine_name: SubroutineName(v),
-                        expression_list,
-                    }
-                )
+                SubroutineCall {
+                    caller,
+                    subroutine_name: SubroutineName(v),
+                    expression_list,
+                }
             ) => {
                 assert_eq!(caller, None);
                 assert_eq!(v.as_str(), "get_max");
                 assert!(expression_list.is_empty());
+            },
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn return_statement() {
+        let mut tokenizer = fixture_tokenizer("\
+            return 1;
+        ");
+        let mut iter = StatementParser::new(&mut tokenizer);
+        match iter.next().unwrap() {
+            Statement::Return(
+                Some(
+                    Expression {
+                        term: Term::IntegerConstant(1),
+                        extra_op_terms,
+                    }
+                )
+            ) => {
+                assert!(extra_op_terms.is_empty());
             },
             _ => panic!()
         }
