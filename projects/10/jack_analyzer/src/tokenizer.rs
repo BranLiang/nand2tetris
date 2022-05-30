@@ -13,7 +13,7 @@ pub enum Token {
     String(String)
 }
 
-const KEYWORDS: [&'static str; 20] = [
+const KEYWORDS: [&'static str; 21] = [
     "class",
     "method",
     "function",
@@ -33,7 +33,8 @@ const KEYWORDS: [&'static str; 20] = [
     "true",
     "false",
     "null",
-    "this"
+    "this",
+    "while"
 ];
 
 const SYMBOLS: [char; 19] = [

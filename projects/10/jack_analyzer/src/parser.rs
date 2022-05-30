@@ -351,6 +351,27 @@ impl<'a> Iterator for StatementParser<'a> {
                     };
                     Some(Statement::If(Box::new(statement)))
                 },
+                "while" => {
+                    // while
+                    self.tokenizer.next();
+                    // `(`
+                    assert_symbol(&self.tokenizer.next()?, '(');
+                    // expression
+                    let expression = Expression::parse(self.tokenizer)?;
+                    // `)`
+                    assert_symbol(&self.tokenizer.next()?, ')');
+                    // `{`
+                    assert_symbol(&self.tokenizer.next()?, '{');
+                    // statements
+                    let statements = StatementParser::new(self.tokenizer).collect();
+                    // `}`
+                    assert_symbol(&self.tokenizer.next()?, '}');
+                    let statement = WhileStatement {
+                        expression,
+                        statements,
+                    };
+                    Some(Statement::While(Box::new(statement)))
+                },
                 _ => None
             }
         } else {
@@ -468,6 +489,22 @@ impl<'a> Iterator for ExtraOpTermsParser<'a> {
             },
             _ => None
         }
+    }
+}
+
+// Helpers
+
+fn assert_keyword(token: &Token, keyword: &str) {
+    match token {
+        Token::Keyword(v) if v.as_str() == keyword => {},
+        _ => panic!("{} doesn't match {:?}", keyword, token)
+    }
+}
+
+fn assert_symbol(token: &Token, symbol: char) {
+    match token {
+        Token::Symbol(v) if *v == symbol => {},
+        _ => panic!("{} doesn't match {:?}", symbol, token)
     }
 }
 
@@ -1201,6 +1238,36 @@ mod tests {
                             Statement::Let(_) => {},
                             _ => panic!()
                         }
+                    },
+                    _ => panic!()
+                }
+            },
+            _ => panic!()
+        }
+    }
+
+    #[test]
+    fn while_statement() {
+        let mut tokenizer = fixture_tokenizer("\
+            while (true) {
+                let a = 1;
+            }
+        ");
+        let mut iter = StatementParser::new(&mut tokenizer);
+        match iter.next().unwrap() {
+            Statement::While(statement) => {
+                match *statement {
+                    WhileStatement {
+                        expression: Expression {
+                            term: Term::KeywordConstant(
+                                KeywordConstant::True
+                            ),
+                            extra_op_terms
+                        },
+                        statements
+                    } => {
+                        assert!(extra_op_terms.is_empty());
+                        assert_eq!(1, statements.len());
                     },
                     _ => panic!()
                 }
