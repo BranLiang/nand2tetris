@@ -14,7 +14,8 @@ impl XML {
         let parser = ClassParser::new(&mut tokenizer);
         let mut padding = Padding::new();
         for class in parser {
-            writeln!(output, "{}", class.to_xml(&mut padding));
+            println!("Parsing: {}", class.name.0);
+            write!(output, "{}", class.to_xml(&mut padding))?;
         }
         Ok(())
     }
@@ -559,6 +560,8 @@ struct Class {
 impl Class {
     pub fn to_xml(&self, padding: &mut Padding) -> String {
         let mut xml = String::new();
+
+        xml.push_str(&padding.to_spaces());
         xml.push_str("<class>\n");
 
         padding.increment();
@@ -581,6 +584,10 @@ impl Class {
 
         xml.push_str(&padding.to_spaces());
         xml.push_str("<symbol> } </symbol>\n");
+
+        padding.decrement();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</class>\n");
 
         xml
     }
@@ -673,7 +680,7 @@ impl Type {
             Type::Int => "<keyword> int </keyword>\n".to_string(),
             Type::Char => "<keyword> char </keyword>\n".to_string(),
             Type::Boolean => "<keyword> boolean </keyword>\n".to_string(),
-            Type::ClassName(v) => format!("<keyword> {} </keyword>\n", v)
+            Type::ClassName(v) => format!("<identifier> {} </identifier>\n", v)
         }
     }
 }
@@ -721,7 +728,7 @@ impl SubroutineReturnType {
 
     pub fn to_xml(&self) -> String {
         match self {
-            SubroutineReturnType::Void => XML::identifier("void"),
+            SubroutineReturnType::Void => XML::keyword("void"),
             SubroutineReturnType::General(t) => t.to_xml()
         }
     }
@@ -754,11 +761,11 @@ impl SubroutineDec {
         xml.push_str(&padding.to_spaces());
         xml.push_str(&XML::symbol('('));
 
-        if self.parameters.len() > 0 {
-            xml.push_str(&padding.to_spaces());
-            xml.push_str("<parameterList>\n");
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<parameterList>\n");
 
-            padding.increment();
+        padding.increment();
+        if self.parameters.len() > 0 {
             let mut parameters = self.parameters.iter();
             let first_parameter = parameters.next().unwrap();
             
@@ -769,11 +776,10 @@ impl SubroutineDec {
 
                 xml.push_str(&parameter.to_xml(padding));
             }
-
-            padding.decrement();
-            xml.push_str(&padding.to_spaces());
-            xml.push_str("</parameterList>\n");
         }
+        padding.decrement();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</parameterList>\n");
 
         xml.push_str(&padding.to_spaces());
         xml.push_str(&XML::symbol(')'));
@@ -850,6 +856,9 @@ impl VarDec {
         xml.push_str(&padding.to_spaces());
         xml.push_str("<varDec>\n");
         padding.increment();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::keyword("var"));
 
         xml.push_str(&padding.to_spaces());
         xml.push_str(&self.var_type.to_xml());
@@ -1024,6 +1033,11 @@ impl LetStatement {
         }
 
         xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol('='));
+
+        xml.push_str(&self.expression.to_xml(padding));
+
+        xml.push_str(&padding.to_spaces());
         xml.push_str(&XML::symbol(';'));
 
         padding.decrement();
@@ -1136,6 +1150,7 @@ impl OpTerm {
     pub fn to_xml(&self, padding: &mut Padding) -> String {
         let mut xml = String::new();
 
+        xml.push_str(&padding.to_spaces());
         xml.push_str(&self.0.to_xml());
         xml.push_str(&self.1.to_xml(padding));
 
@@ -1504,10 +1519,10 @@ impl Op {
             Op::Minus => XML::symbol('-'),
             Op::Multiply => XML::symbol('*'),
             Op::Divide => XML::symbol('/'),
-            Op::And => XML::symbol('&'),
+            Op::And => "<symbol> &amp; </symbol>\n".to_string(),
             Op::Or => XML::symbol('|'),
-            Op::Lt => XML::symbol('<'),
-            Op::Gt => XML::symbol('>'),
+            Op::Lt => "<symbol> &lt; </symbol>\n".to_string(),
+            Op::Gt => "<symbol> &gt; </symbol>\n".to_string(),
             Op::Eq => XML::symbol('=')
         }
     }
