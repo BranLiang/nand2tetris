@@ -640,14 +640,14 @@ impl ClassVarDec {
 
         for var_name in &self.extra_var_names {
             xml.push_str(&padding.to_spaces());
-            xml.push_str("<symbol> , </symbol>");
+            xml.push_str(&XML::symbol(','));
 
             xml.push_str(&padding.to_spaces());
             xml.push_str(&var_name.to_xml());
         }
 
         xml.push_str(&padding.to_spaces());
-        xml.push_str("<symbol> ; </symbol>");
+        xml.push_str(&XML::symbol(';'));
 
         padding.decrement();
         xml.push_str(&padding.to_spaces());
@@ -1257,7 +1257,13 @@ impl Term {
                 xml.push_str(&subroutine_call.to_xml(padding));
             },
             Term::Expression(expression) => {
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&XML::symbol('('));
+
                 xml.push_str(&expression.to_xml(padding));
+
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&XML::symbol(')'));
             },
             Term::WithUnary(op, term) => {
                 xml.push_str(&padding.to_spaces());
@@ -1407,7 +1413,14 @@ impl SubroutineCall {
         xml.push_str("<expressionList>\n");
         padding.increment();
 
-        for expression in self.expression_list.iter() {
+        let mut expressions = self.expression_list.iter();
+        if let Some(expression) = expressions.next() {
+            xml.push_str(&expression.to_xml(padding));
+        }
+        for expression in expressions {
+            xml.push_str(&padding.to_spaces());
+            xml.push_str(&XML::symbol(','));
+
             xml.push_str(&expression.to_xml(padding));
         }
 

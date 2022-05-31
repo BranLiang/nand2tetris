@@ -62,14 +62,15 @@ const SYMBOLS: [char; 19] = [
 #[derive(Debug)]
 pub struct Tokenizer {
     lines: Lines<BufReader<File>>,
-    current_line: Line
+    current_line: Line,
+    is_comment: bool
 }
 
 impl Tokenizer {
     pub fn new(file: File) -> Result<Self, io::Error> {
         let lines = BufReader::new(file).lines();
         let current_line = Line::new("");
-        Ok(Self { lines, current_line })
+        Ok(Self { lines, current_line, is_comment: false })
     }
 }
 
@@ -81,12 +82,26 @@ impl Iterator for Tokenizer {
             return Some(token);
         } else {
             let line = self.lines.next()?.unwrap();
+            let line = line.trim();
+
+            // handle /** comments */
+            if line.starts_with("/** ") && line.ends_with(" */") {
+                return self.next();
+            } else if line.starts_with("/**") {
+                self.is_comment = true;
+                return self.next();
+            } else if line.starts_with("*/") {
+                self.is_comment = false;
+                return self.next();
+            } else if self.is_comment {
+                return self.next();
+            }
+
             let line = if let Some((non_comment, _comment)) = line.split_once("//") {
-                non_comment.to_string()
+                non_comment
             } else {
                 line
             };
-            let line = line.trim();
             self.current_line = Line::new(line);
             self.next()
         }
@@ -303,6 +318,10 @@ mod tests {
         let content = "\
             if (x < 0) {
                 // print the slogan
+                /** I am a comment */
+                /**
+                 * Test
+                 */
                 do Output.printString(\"hello world :)\");
             }
         ";
@@ -391,5 +410,10 @@ mod tests {
         }
 
         assert!(tokenizer.next().is_none());
+    }
+
+    #[test]
+    fn test() {
+        assert!(" */\n".trim().starts_with("*/"));
     }
 }
