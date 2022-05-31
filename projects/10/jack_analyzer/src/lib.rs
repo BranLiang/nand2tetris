@@ -1,12 +1,30 @@
 use std::env::Args;
 use std::error::Error;
+use std::fs::{OpenOptions, File};
 use std::path::Path;
 
-pub mod tokenizer;
+mod tokenizer;
 mod parser;
+mod utils;
 
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
+    match config.source {
+        Source::File(filename) => {
+            let mut output = OpenOptions::new()
+                        .write(true)
+                        .truncate(true)
+                        .create(true)
+                        .open(filename.replace(".jack", ".xml"))?;
+            write_xml(&filename, &mut output)?;
+        },
+        _ => {}
+    }
     Ok(())
+}
+
+fn write_xml(filename: &str, output: &mut File) -> Result<(), Box<dyn Error>> {
+    let file = File::open(filename)?;
+    parser::XML::compile(file, output)
 }
 
 enum Source {

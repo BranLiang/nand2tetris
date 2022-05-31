@@ -1,6 +1,36 @@
+use std::fs::File;
 use std::iter::Peekable;
+use std::error::Error;
+use std::io::Write;
 use crate::tokenizer::Tokenizer;
 use crate::tokenizer::Token;
+use crate::utils::Padding;
+
+pub struct XML;
+
+impl XML {
+    pub fn compile(file: File, output: &mut File) -> Result<(), Box<dyn Error>> {
+        let mut tokenizer = Tokenizer::new(file)?.peekable();
+        let parser = ClassParser::new(&mut tokenizer);
+        let mut padding = Padding::new();
+        for class in parser {
+            writeln!(output, "{}", class.to_xml(&mut padding));
+        }
+        Ok(())
+    }
+
+    pub fn symbol(symbol: char) -> String {
+        format!("<symbol> {} </symbol>\n", symbol)
+    }
+
+    pub fn keyword(keywrod: &str) -> String {
+        format!("<keyword> {} </keyword>\n", keywrod)
+    }
+
+    pub fn identifier(identifier: &str) -> String {
+        format!("<identifier> {} </identifier>\n", identifier)
+    }
+}
 
 // ClassParser
 
@@ -140,7 +170,7 @@ impl<'a> Iterator for SubroutineDecParser<'a> {
                 // varDec*
                 let var_decs = VarDecParser::new(self.tokenizer).collect();
                 // statements
-                let statements = StatementParser::new(self.tokenizer).collect();
+                let statements = Statements::parse(self.tokenizer);
                 let body = SubroutineBody { var_decs, statements };
                 // `}`
                 assert_symbol(&self.tokenizer.next()?, '}');
@@ -326,7 +356,7 @@ impl<'a> Iterator for StatementParser<'a> {
                     // `{`
                     assert_symbol(&self.tokenizer.next()?, '{');
                     // if statements
-                    let if_statements: Statements = StatementParser::new(self.tokenizer).collect();
+                    let if_statements = Statements::parse(self.tokenizer);
                     // `}`
                     assert_symbol(&self.tokenizer.next()?, '}');
                     // else statements
@@ -337,7 +367,7 @@ impl<'a> Iterator for StatementParser<'a> {
                             // `{`
                             assert_symbol(&self.tokenizer.next()?, '{');
                             // statements
-                            let statements: Statements = StatementParser::new(self.tokenizer).collect();
+                            let statements = Statements::parse(self.tokenizer);
                             // `}`
                             assert_symbol(&self.tokenizer.next()?, '}');
                             Some(statements)
@@ -363,7 +393,7 @@ impl<'a> Iterator for StatementParser<'a> {
                     // `{`
                     assert_symbol(&self.tokenizer.next()?, '{');
                     // statements
-                    let statements = StatementParser::new(self.tokenizer).collect();
+                    let statements = Statements::parse(self.tokenizer);
                     // `}`
                     assert_symbol(&self.tokenizer.next()?, '}');
                     let statement = WhileStatement {
@@ -526,6 +556,36 @@ struct Class {
     subroutine_decs: Vec<SubroutineDec>
 }
 
+impl Class {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+        xml.push_str("<class>\n");
+
+        padding.increment();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<keyword> class </keyword>\n");
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.name.to_xml());
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<symbol> { </symbol>\n");
+
+        for class_var_dec in self.class_var_decs.iter() {
+            xml.push_str(&class_var_dec.to_xml(padding));
+        }
+
+        for subroutine_dec in &self.subroutine_decs {
+            xml.push_str(&subroutine_dec.to_xml(padding));
+        }
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<symbol> } </symbol>\n");
+
+        xml
+    }
+}
+
 enum ClassVarDecType {
     Static,
     Field
@@ -539,6 +599,13 @@ impl ClassVarDecType {
             _ => None
         }
     }
+
+    pub fn to_xml(&self) -> String {
+        match self {
+            ClassVarDecType::Field => "<keyword> field </keyword>\n".to_string(),
+            ClassVarDecType::Static => "<keyword> static </keyword>\n".to_string()
+        }
+    }
 }
 
 struct ClassVarDec {
@@ -547,6 +614,42 @@ struct ClassVarDec {
     var_name: VarName,
     extra_var_names: Vec<VarName>
 }
+
+impl ClassVarDec {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<classVarDec>\n");
+
+        padding.increment();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.dec_type.to_xml());
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.var_type.to_xml());
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.var_name.to_xml());
+
+        for var_name in &self.extra_var_names {
+            xml.push_str(&padding.to_spaces());
+            xml.push_str("<symbol> , </symbol>");
+
+            xml.push_str(&padding.to_spaces());
+            xml.push_str(&var_name.to_xml());
+        }
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<symbol> ; </symbol>");
+
+        padding.decrement();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</classVarDec>\n");
+
+        xml
+    }
+}
+
 enum Type {
     Int,
     Char,
@@ -562,6 +665,15 @@ impl Type {
             Token::Keyword(v) if *v == "boolean".to_string() => Some(Type::Boolean),
             Token::Identifier(v) => Some(Type::ClassName((*v).clone())),
             _ => None
+        }
+    }
+
+    pub fn to_xml(&self) -> String {
+        match self {
+            Type::Int => "<keyword> int </keyword>\n".to_string(),
+            Type::Char => "<keyword> char </keyword>\n".to_string(),
+            Type::Boolean => "<keyword> boolean </keyword>\n".to_string(),
+            Type::ClassName(v) => format!("<keyword> {} </keyword>\n", v)
         }
     }
 }
@@ -581,6 +693,14 @@ impl SubroutineType {
             _ => None
         }
     }
+
+    pub fn to_xml(&self) -> String {
+        match self {
+            SubroutineType::Constructor => XML::keyword("constructor"),
+            SubroutineType::Function => XML::keyword("function"),
+            SubroutineType::Method => XML::keyword("method")
+        }
+    }
 }
 
 enum SubroutineReturnType {
@@ -598,6 +718,13 @@ impl SubroutineReturnType {
             }
         }
     }
+
+    pub fn to_xml(&self) -> String {
+        match self {
+            SubroutineReturnType::Void => XML::identifier("void"),
+            SubroutineReturnType::General(t) => t.to_xml()
+        }
+    }
 }
 
 struct SubroutineDec {
@@ -608,11 +735,106 @@ struct SubroutineDec {
     body: SubroutineBody
 }
 
+impl SubroutineDec {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<subroutineDec>\n");
+
+        padding.increment();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.subroutine_type.to_xml());
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.return_type.to_xml());
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.name.to_xml());
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol('('));
+
+        if self.parameters.len() > 0 {
+            xml.push_str(&padding.to_spaces());
+            xml.push_str("<parameterList>\n");
+
+            padding.increment();
+            let mut parameters = self.parameters.iter();
+            let first_parameter = parameters.next().unwrap();
+            
+            xml.push_str(&first_parameter.to_xml(padding));
+            for parameter in parameters {
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&XML::symbol(','));
+
+                xml.push_str(&parameter.to_xml(padding));
+            }
+
+            padding.decrement();
+            xml.push_str(&padding.to_spaces());
+            xml.push_str("</parameterList>\n");
+        }
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol(')'));
+
+        xml.push_str(&self.body.to_xml(padding));
+
+        padding.decrement();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</subroutineDec>\n");
+
+        xml
+    }
+}
+
 struct Parameter(Type, VarName);
+
+impl Parameter {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+        // Type
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.0.to_xml());
+
+        // varName
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.1.to_xml());
+
+        xml
+    }
+}
 
 struct SubroutineBody {
     var_decs: Vec<VarDec>,
-    statements: Vec<Statement>
+    statements: Statements
+}
+
+impl SubroutineBody {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<subroutineBody>\n");
+
+        padding.increment();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol('{'));
+
+        for var_dec in self.var_decs.iter() {
+            xml.push_str(&var_dec.to_xml(padding));
+        }
+
+        xml.push_str(&self.statements.to_xml(padding));
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol('}'));
+        padding.decrement();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</subroutineBody>\n");
+        xml
+    }
 }
 
 struct VarDec {
@@ -621,13 +843,91 @@ struct VarDec {
     extra_var_names: Vec<VarName>
 }
 
+impl VarDec {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<varDec>\n");
+        padding.increment();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.var_type.to_xml());
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.var_name.to_xml());
+
+        for var_name in self.extra_var_names.iter() {
+            xml.push_str(&padding.to_spaces());
+            xml.push_str(&XML::symbol(','));
+            
+            xml.push_str(&padding.to_spaces());
+            xml.push_str(&var_name.to_xml());
+        }
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol(';'));
+
+        padding.decrement();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</varDec>\n");
+
+        xml
+    }
+}
+
 struct ClassName(String);
+impl ClassName {
+    pub fn to_xml(&self) -> String {
+        format!("<identifier> {} </identifier>\n", self.0)
+    }
+}
+
 struct SubroutineName(String);
+impl SubroutineName {
+    pub fn to_xml(&self) -> String {
+        format!("<identifier> {} </identifier>\n", self.0)
+    }
+}
+
 struct VarName(String);
+impl VarName {
+    pub fn to_xml(&self) -> String {
+        format!("<identifier> {} </identifier>\n", self.0)
+    }
+}
 
 // Statements
 
-type Statements = Vec<Statement>;
+struct Statements(Vec<Statement>);
+
+impl Statements {
+    pub fn parse(tokenizer: &mut Peekable<Tokenizer>) -> Self {
+        Statements(
+            StatementParser::new(tokenizer).collect()
+        )
+    }
+
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+
+        if self.0.len() > 0 {
+            xml.push_str(&padding.to_spaces());
+            xml.push_str("<statements>\n");
+            padding.increment();
+
+            for statement in self.0.iter() {
+                xml.push_str(&statement.to_xml(padding));
+            }
+
+            padding.decrement();
+            xml.push_str(&padding.to_spaces());
+            xml.push_str("</statements>\n");
+        }
+
+        xml
+    }
+}
 
 enum Statement {
     Let(LetStatement),
@@ -637,10 +937,101 @@ enum Statement {
     Return(Option<Expression>)
 }
 
+impl Statement {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+
+        match self {
+            Statement::Let(statement) => {
+                xml.push_str(&statement.to_xml(padding));
+            },
+            Statement::If(statement) => {
+                xml.push_str(&statement.to_xml(padding));
+            },
+            Statement::While(statement) => {
+                xml.push_str(&statement.to_xml(padding));
+            },
+            Statement::Do(subroutine_call) => {
+                xml.push_str(&padding.to_spaces());
+                xml.push_str("<doStatement>\n");
+                padding.increment();
+
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&XML::keyword("do"));
+
+                xml.push_str(&subroutine_call.to_xml(padding));
+
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&XML::symbol(';'));
+
+                padding.decrement();
+                xml.push_str(&padding.to_spaces());
+                xml.push_str("</doStatement>\n");
+            },
+            Statement::Return(expression) => {
+                xml.push_str(&padding.to_spaces());
+                xml.push_str("<returnStatement>\n");
+                padding.increment();
+
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&XML::keyword("return"));
+
+                if let Some(expression) = expression {
+                    xml.push_str(&expression.to_xml(padding));
+                }
+
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&XML::symbol(';'));
+
+                padding.decrement();
+                xml.push_str(&padding.to_spaces());
+                xml.push_str("</returnStatement>\n");
+            }
+        }
+
+        xml
+    }
+}
+
 struct LetStatement {
     var_name: VarName,
     index_expression: Option<Expression>,
     expression: Expression
+}
+
+impl LetStatement {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<letStatement>\n");
+        padding.increment();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::keyword("let"));
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.var_name.to_xml());
+
+        if let Some(expression) = &self.index_expression {
+            xml.push_str(&padding.to_spaces());
+            xml.push_str(&XML::symbol('['));
+
+            xml.push_str(&expression.to_xml(padding));
+
+            xml.push_str(&padding.to_spaces());
+            xml.push_str(&XML::symbol(']'));
+        }
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol(';'));
+
+        padding.decrement();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</letStatement>\n");
+
+        xml
+    }
 }
 
 struct IfStatement {
@@ -649,14 +1040,108 @@ struct IfStatement {
     else_statements: Option<Statements>
 }
 
+impl IfStatement {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<ifStatement>\n");
+        padding.increment();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::keyword("if"));
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol('('));
+
+        xml.push_str(&self.expression.to_xml(padding));
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol(')'));
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol('{'));
+
+        xml.push_str(&self.if_statements.to_xml(padding));
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol('}'));
+
+        if let Some(else_statements) = &self.else_statements {
+            xml.push_str(&padding.to_spaces());
+            xml.push_str(&XML::keyword("else"));
+
+            xml.push_str(&padding.to_spaces());
+            xml.push_str(&XML::symbol('{'));
+
+            xml.push_str(&else_statements.to_xml(padding));
+
+            xml.push_str(&padding.to_spaces());
+            xml.push_str(&XML::symbol('}'));
+        }
+
+        padding.decrement();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</ifStatement>\n");
+
+        xml
+    }
+}
+
 struct WhileStatement {
     expression: Expression,
     statements: Statements
 }
 
+impl WhileStatement {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<whileStatement>\n");
+        padding.increment();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::keyword("while"));
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol('('));
+
+        xml.push_str(&self.expression.to_xml(padding));
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol(')'));
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol('{'));
+
+        xml.push_str(&self.statements.to_xml(padding));
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol('}'));
+
+        padding.decrement();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</whileStatement>\n");
+
+        xml
+    }
+}
+
 // Expressions
 
 struct OpTerm(Op, Term);
+
+impl OpTerm {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+
+        xml.push_str(&self.0.to_xml());
+        xml.push_str(&self.1.to_xml(padding));
+
+        xml
+    }
+}
 
 struct Expression {
     term: Term,
@@ -683,6 +1168,26 @@ impl Expression {
             extra_op_terms,
         })
     }
+
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<expression>\n");
+        padding.increment();
+
+        xml.push_str(&self.term.to_xml(padding));
+
+        for op_term in self.extra_op_terms.iter() {
+            xml.push_str(&op_term.to_xml(padding));
+        }
+
+        padding.decrement();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</expression>\n");
+
+        xml
+    }
 }
 
 enum Term {
@@ -697,6 +1202,63 @@ enum Term {
 }
 
 impl Term {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<term>\n");
+        padding.increment();
+
+        match self {
+            Term::IntegerConstant(v) => {
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&format!("<integerConstant> {} </integerConstant>\n", v));
+            },
+            Term::StringConstant(v) => {
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&format!("<stringConstant> {} </stringConstant>\n", v));
+            },
+            Term::KeywordConstant(v) => {
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&v.to_xml());
+            },
+            Term::VarName(v) => {
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&format!("<identifier> {} </identifier>\n", v));
+            },
+            Term::IndexVar(v, expression) => {
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&format!("<identifier> {} </identifier>\n", v));
+
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&XML::symbol('['));
+
+                xml.push_str(&expression.to_xml(padding));
+
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&XML::symbol(']'));
+            },
+            Term::Call(subroutine_call) => {
+                xml.push_str(&subroutine_call.to_xml(padding));
+            },
+            Term::Expression(expression) => {
+                xml.push_str(&expression.to_xml(padding));
+            },
+            Term::WithUnary(op, term) => {
+                xml.push_str(&padding.to_spaces());
+                xml.push_str(&op.to_xml());
+                
+                xml.push_str(&term.to_xml(padding));
+            }
+        }
+
+        padding.decrement();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</term>\n");
+
+        xml
+    }
+
     pub fn parse(tokenizer: &mut Peekable<Tokenizer>) -> Option<Self> {
         let token = (*tokenizer.peek()?).clone();
         match token {
@@ -809,6 +1371,41 @@ struct SubroutineCall {
 }
 
 impl SubroutineCall {
+    pub fn to_xml(&self, padding: &mut Padding) -> String {
+        let mut xml = String::new();
+
+        if let Some(caller) = &self.caller {
+            xml.push_str(&padding.to_spaces());
+            xml.push_str(&XML::identifier(&caller));
+
+            xml.push_str(&padding.to_spaces());
+            xml.push_str(&XML::symbol('.'));
+        }
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&self.subroutine_name.to_xml());
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol('('));
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("<expressionList>\n");
+        padding.increment();
+
+        for expression in self.expression_list.iter() {
+            xml.push_str(&expression.to_xml(padding));
+        }
+
+        padding.decrement();
+        xml.push_str(&padding.to_spaces());
+        xml.push_str("</expressionList>\n");
+
+        xml.push_str(&padding.to_spaces());
+        xml.push_str(&XML::symbol(')'));
+
+        xml
+    }
+
     pub fn parse(tokenizer: &mut Peekable<Tokenizer>) -> Option<Self> {
         match tokenizer.next()? {
             Token::Identifier(v) => {
@@ -863,9 +1460,29 @@ enum KeywordConstant {
     This
 }
 
+impl KeywordConstant {
+    pub fn to_xml(&self) -> String {
+        match self {
+            KeywordConstant::True => XML::keyword("true"),
+            KeywordConstant::False => XML::keyword("false"),
+            KeywordConstant::Null => XML::keyword("null"),
+            KeywordConstant::This => XML::keyword("this")
+        }
+    }
+}
+
 enum UnaryOp {
     Negative,
     Not
+}
+
+impl UnaryOp {
+    pub fn to_xml(&self) -> String {
+        match self {
+            UnaryOp::Negative => XML::symbol('-'),
+            UnaryOp::Not => XML::symbol('~'),
+        }
+    }
 }
 
 enum Op {
@@ -878,6 +1495,22 @@ enum Op {
     Lt,
     Gt,
     Eq
+}
+
+impl Op {
+    pub fn to_xml(&self) -> String {
+        match self {
+            Op::Plus => XML::symbol('+'),
+            Op::Minus => XML::symbol('-'),
+            Op::Multiply => XML::symbol('*'),
+            Op::Divide => XML::symbol('/'),
+            Op::And => XML::symbol('&'),
+            Op::Or => XML::symbol('|'),
+            Op::Lt => XML::symbol('<'),
+            Op::Gt => XML::symbol('>'),
+            Op::Eq => XML::symbol('=')
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1009,7 +1642,7 @@ mod tests {
                 parameters,
                 body: SubroutineBody {
                     var_decs,
-                    statements
+                    statements: Statements(statements)
                 }
             } => {
                 assert_eq!(a.as_str(), "People");
@@ -1039,7 +1672,7 @@ mod tests {
                 parameters,
                 body: SubroutineBody {
                     var_decs,
-                    statements
+                    statements: Statements(statements)
                 }
             } => {
                 assert!(parameters.is_empty());
@@ -1272,8 +1905,10 @@ mod tests {
                             ),
                             extra_op_terms,
                         },
-                        if_statements,
-                        else_statements: Some(else_statements),
+                        if_statements: Statements(if_statements),
+                        else_statements: Some(
+                            Statements(else_statements)
+                        ),
                     } => {
                         assert!(extra_op_terms.is_empty());
                         assert_eq!(1, if_statements.len());
@@ -1312,7 +1947,7 @@ mod tests {
                             ),
                             extra_op_terms
                         },
-                        statements
+                        statements: Statements(statements)
                     } => {
                         assert!(extra_op_terms.is_empty());
                         assert_eq!(1, statements.len());
