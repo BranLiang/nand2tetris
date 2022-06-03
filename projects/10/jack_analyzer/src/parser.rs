@@ -5,6 +5,11 @@ use std::io::Write;
 use crate::tokenizer::Tokenizer;
 use crate::tokenizer::Token;
 use crate::utils::Padding;
+use crate::utils::Symbol;
+use crate::utils::SymbolTable;
+use crate::utils::SymbolKind;
+use crate::utils::CharSet;
+use crate::utils::LabelGenerator;
 
 pub struct XML;
 
@@ -30,6 +35,362 @@ impl XML {
 
     pub fn identifier(identifier: &str) -> String {
         format!("<identifier> {} </identifier>\n", identifier)
+    }
+}
+
+pub struct VM {
+    class_table: SymbolTable,
+    subroutine_table: SymbolTable,
+    label_generator: LabelGenerator,
+    charset: CharSet,
+    class_name: String
+}
+
+impl VM {
+    pub fn new(class_name: &str) -> Self {
+        VM {
+            class_table: SymbolTable::new(),
+            subroutine_table: SymbolTable::new(),
+            label_generator: LabelGenerator::new(class_name),
+            charset: CharSet::new(),
+            class_name: class_name.to_string()
+        }
+    }
+
+    pub fn compile(file: File, output: &mut File) -> Result<(), Box<dyn Error>> {
+        let mut tokenizer = Tokenizer::new(file)?.peekable();
+        let parser = ClassParser::new(&mut tokenizer);
+        for class in parser {
+            println!("Compiling: {}", class.name.0);
+            let mut vm = VM::new(&class.name.0);
+            write!(output, "{}", vm.compile_class(&class))?;
+        }
+        Ok(())
+    }
+
+    pub fn push(segment: &str, value: i16) -> String {
+        format!("push {} {}\n", segment, value)
+    }
+
+    pub fn pop(segment: &str, index: i16) -> String {
+        format!("pop {} {}\n", segment, index)
+    }
+
+    pub fn op(name: &str) -> String {
+        format!("{}\n", name)
+    }
+
+    pub fn call(function_name: &str, n_args: i16) -> String {
+        format!("call {} {}\n", function_name, n_args)
+    }
+
+    pub fn build(instructions: Vec<String>) -> String {
+        let mut vm = String::new();
+        for instruction in instructions.iter() {
+            vm.push_str(instruction);
+        }
+        vm
+    }
+
+    pub fn label(label: &str) -> String {
+        format!("label {}\n", label)
+    }
+
+    pub fn generate_label(&mut self) -> String {
+        self.label_generator.generate()
+    }
+
+    pub fn goto(label: &str) -> String {
+        format!("goto {}\n", label)
+    }
+
+    pub fn ifgoto(label: &str) -> String {
+        format!("if-goto {}\n", label)
+    }
+
+    pub fn function(name: &str, n_vars: i16) -> String {
+        format!("function {} {}\n", name, n_vars)
+    }
+
+    pub fn find_by(&self, name: &str) -> Option<&Symbol> {
+        self.subroutine_table.find_by(name).or_else(|| self.class_table.find_by(name))
+    }
+
+    pub fn compile_string(&self, content: &str) -> String {
+        let mut push_chars = String::new();
+        for char in content.chars() {
+            let char_number = self.charset.decode(char);
+            push_chars.push_str(&VM::push("constant", char_number));
+            push_chars.push_str(&VM::call("String.appendChar", 2));
+        }
+        VM::build(vec![
+            VM::push("constant", content.len() as i16),
+            VM::call("String.new", 1),
+            push_chars
+        ])
+    }
+
+    fn compile_class(&mut self, class: &Class) -> String {
+        let mut instructions = String::new();
+        // mapping class variables to the symbol table
+        for var_dec in class.class_var_decs.iter() {
+            self.class_table.push(
+                &var_dec.var_name.0,
+                var_dec.var_type.clone(),
+                var_dec.dec_type.to_symbol_kind()
+            )
+        }
+        // adding subroutine vm instructions
+        for subroutine_dec in class.subroutine_decs.iter() {
+            instructions.push_str(&self.compile_subroutine(&subroutine_dec))
+        }
+        instructions
+    }
+
+    fn compile_subroutine(&mut self, subroutine_dec: &SubroutineDec) -> String {
+        self.subroutine_table = SymbolTable::new();
+        // add method to the subroutine symbol table
+        if let SubroutineType::Method = subroutine_dec.subroutine_type {
+            self.subroutine_table.push(
+                "this",
+                Type::ClassName(self.class_name.clone()),
+                SymbolKind::Argument
+            )
+        }
+        // add parameters to the subroutine symbol table
+        for parameter in subroutine_dec.parameters.iter() {
+            self.subroutine_table.push(
+                &parameter.1.0,
+                parameter.0.clone(),
+                SymbolKind::Argument
+            );
+        }
+        // handle local variables
+        let mut n_vars = 0;
+        for var_dec in subroutine_dec.body.var_decs.iter() {
+            n_vars += 1;
+            self.subroutine_table.push(
+                &var_dec.var_name.0,
+                var_dec.var_type.clone(),
+                SymbolKind::Local
+            );
+        }
+
+        let mut instructions = Vec::new();
+        // function functionName nVars
+        let function_name = format!("{}.{}", self.class_name, subroutine_dec.name.0);
+        instructions.push(VM::function(&function_name, n_vars));
+
+        match subroutine_dec.subroutine_type {
+            SubroutineType::Constructor => {
+                let field_vars_count = self.class_table.field_vars_count();
+                instructions.push(VM::push("constant", field_vars_count));
+                instructions.push(VM::call("Memory.alloc", 1));
+                instructions.push(VM::pop("pointer", 0));
+            },
+            SubroutineType::Method => {
+                // set THIS pointer to the value of argument 0
+                instructions.push(VM::push("argument", 0));
+                instructions.push(VM::pop("pointer", 0));
+            },
+            SubroutineType::Function => {}
+        }
+        // handle statements
+        instructions.push(
+            self.compile_statements(&subroutine_dec.body.statements)
+        );
+        // handle void return type
+        if let SubroutineReturnType::Void = subroutine_dec.return_type {
+            instructions.push(VM::push("constant", 0));
+            instructions.push("return".to_string());
+        }
+        VM::build(instructions)
+    }
+
+    fn compile_statements(&mut self, statements: &Statements) -> String {
+        let mut instructions = Vec::new();
+        for statement in statements.0.iter() {
+            match statement {
+                Statement::Do(subroutine_call) => {
+                    instructions.push(self.compile_subroutine_call(subroutine_call));
+                    instructions.push(VM::pop("temp", 0));
+                },
+                Statement::If(statement) => {
+                    instructions.push(self.compile_if_statement(statement));
+                },
+                Statement::While(statement) => {
+                    instructions.push(self.compile_while_statement(statement));
+                },
+                Statement::Let(statement) => {
+                    instructions.push(self.compile_let_statement(statement));
+                },
+                Statement::Return(expression) => {
+                    if let Some(expression) = expression {
+                        instructions.push(self.compile_expression(expression));
+                    }
+                    instructions.push("return".to_string())
+                }
+            }
+        }
+        VM::build(instructions)
+    }
+
+    fn compile_subroutine_call(&self, subroutine_call: &SubroutineCall) -> String {
+        let mut instructions = String::new();
+        for expression in subroutine_call.expression_list.iter() {
+            instructions.push_str(&self.compile_expression(expression));
+        }
+        let caller = match &subroutine_call.caller {
+            Some(v) => v.to_string(),
+            None => "this".to_string()
+        };
+        if let Some(symbol) = self.find_by(&caller) {
+            // handle method call
+            let segment = symbol.vm_memory_segment();
+            let index = symbol.index();
+            let command = format!("{}.{}", symbol.class_name(), subroutine_call.subroutine_name.0);
+            VM::build(vec![
+                VM::push(&segment, index),
+                instructions,
+                VM::call(&command, subroutine_call.expression_list.len() as i16 + 1)
+            ])
+        } else {
+            // handle function calls and constructor calls
+            let command = format!("{}.{}", caller, subroutine_call.subroutine_name.0);
+            VM::build(vec![
+                instructions,
+                VM::call(&command, subroutine_call.expression_list.len() as i16)
+            ])
+        }
+    }
+
+    fn compile_if_statement(&mut self, statement: &IfStatement) -> String {
+        let l1 = self.generate_label();
+        let l2 = self.generate_label();
+
+        let mut instructions = Vec::new();
+        instructions.push(self.compile_expression(&statement.expression));
+        instructions.push(VM::op("not"));
+        instructions.push(VM::ifgoto(&l1));
+        instructions.push(self.compile_statements(&statement.if_statements));
+        instructions.push(VM::goto(&l2));
+        instructions.push(VM::label(&l1));
+        if let Some(statements) = &statement.else_statements {
+            instructions.push(self.compile_statements(statements));
+        }
+        instructions.push(VM::label(&l2));
+        VM::build(instructions)
+    }
+
+    fn compile_while_statement(&mut self, statement: &WhileStatement) -> String {
+        let l1 = self.generate_label();
+        let l2 = self.generate_label();
+
+        let mut instructions = Vec::new();
+        instructions.push(VM::label(&l1));
+        instructions.push(self.compile_expression(&statement.expression));
+        instructions.push(VM::op("not"));
+        instructions.push(VM::ifgoto(&l2));
+        instructions.push(self.compile_statements(&statement.statements));
+        instructions.push(VM::goto(&l1));
+        instructions.push(VM::label(&l2));
+        VM::build(instructions)
+    }
+
+    fn compile_let_statement(&self, statement: &LetStatement) -> String {
+        let symbol = self.find_by(&statement.var_name.0).unwrap();
+        if let Some(expression) = &statement.index_expression {
+            // handle array index assignment
+            VM::build(vec![
+                VM::push(&symbol.vm_memory_segment(), symbol.index()),
+                self.compile_expression(expression),
+                VM::op("add"),
+                self.compile_expression(&statement.expression),
+                VM::pop("temp", 0),
+                VM::pop("pointer", 1),
+                VM::push("temp", 0),
+                VM::pop("that", 0)
+            ])
+        } else {
+            VM::build(vec![
+                self.compile_expression(&statement.expression),
+                VM::pop(&symbol.vm_memory_segment(), symbol.index())
+            ])
+        }
+    }
+
+    fn compile_expression(&self, expression: &Expression) -> String {
+        let mut instructions = Vec::new();
+        instructions.push(self.compile_term(&expression.term));
+        for op_term in expression.extra_op_terms.iter() {
+            instructions.push(self.compile_term(&op_term.1));
+            instructions.push(self.compile_operation(&op_term.0));
+        }
+        VM::build(instructions)
+    }
+
+    fn compile_operation(&self, operation: &Op) -> String {
+        match operation {
+            Op::Plus => VM::op("add"),
+            Op::Minus => VM::op("sub"),
+            Op::Multiply => VM::call("Math.multiply", 2),
+            Op::Divide => VM::call("Math.divide", 2),
+            Op::And => VM::op("and"),
+            Op::Or => VM::op("or"),
+            Op::Lt => VM::op("lt"),
+            Op::Gt => VM::op("gt"),
+            Op::Eq => VM::op("eq")
+        }
+    }
+
+    fn compile_unary_op(&self, unary_operation: &UnaryOp) -> String {
+        match unary_operation {
+            UnaryOp::Negative => VM::op("neg"),
+            UnaryOp::Not => VM::op("not"),
+        }
+    }
+
+    fn compile_term(&self, term: &Term) -> String {
+        match term {
+            Term::IntegerConstant(v) => VM::push("constant", *v),
+            Term::VarName(v) => {
+                let symbol = self.find_by(v).unwrap();
+                VM::push(&symbol.vm_memory_segment(), symbol.index())
+            },
+            Term::KeywordConstant(v) => {
+                match v {
+                    KeywordConstant::Null => VM::push("constant", 0),
+                    KeywordConstant::False => VM::push("constant", 0),
+                    KeywordConstant::True => {
+                        VM::build(vec![
+                            VM::push("constant", 1),
+                            VM::op("neg")
+                        ])
+                    },
+                    KeywordConstant::This => VM::push("pointer", 0)
+                }
+            },
+            Term::StringConstant(v) => self.compile_string(v),
+            Term::Expression(expression) => self.compile_expression(expression),
+            Term::Call(subroutine_call) => self.compile_subroutine_call(subroutine_call),
+            Term::WithUnary(op, term) => {
+                VM::build(vec![
+                    self.compile_term(term),
+                    self.compile_unary_op(op)
+                ])
+            },
+            Term::IndexVar(var_name, expression) => {
+                let symbol = self.find_by(var_name).unwrap();
+                VM::build(vec![
+                    // sets THAT
+                    VM::push(&symbol.vm_memory_segment(), symbol.index()),
+                    self.compile_expression(expression),
+                    VM::op("add"),
+                    VM::pop("pointer", 1),
+                    VM::push("that", 0)
+                ])
+            }
+        }
     }
 }
 
@@ -599,6 +960,13 @@ enum ClassVarDecType {
 }
 
 impl ClassVarDecType {
+    pub fn to_symbol_kind(&self) -> SymbolKind {
+        match self {
+            ClassVarDecType::Static => SymbolKind::Static,
+            ClassVarDecType::Field => SymbolKind::Field
+        }
+    }
+
     pub fn new(v: &str) -> Option<Self> {
         match v {
             "static" => Some(Self::Static),
@@ -657,7 +1025,8 @@ impl ClassVarDec {
     }
 }
 
-enum Type {
+#[derive(Clone)]
+pub enum Type {
     Int,
     Char,
     Boolean,

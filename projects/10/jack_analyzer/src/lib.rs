@@ -10,17 +10,34 @@ mod utils;
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     match config.source {
         Source::File(filename) => {
-            let mut output = output_file(&filename.replace(".jack", ".xml"));
-            write_xml(&filename, &mut output)?;
+            match config.target {
+                Target::XML => {
+                    let mut output = output_file(&filename.replace(".jack", ".xml"));
+                    write_xml(&filename, &mut output)?;
+                },
+                Target::VM => {
+                    let mut output = output_file(&filename.replace(".jack", ".vm"));
+                    write_vm(&filename, &mut output)?;
+                }
+            }
         },
         Source::Directory(directory) => {
             let path = fs::read_dir(directory)?;
             for entry in path {
                 let path = entry?.path();
                 if path.extension().unwrap() == "jack" {
-                    let output_filename = format!("{}", path.as_os_str().to_str().unwrap()).replace(".jack", ".xml");
-                    let mut output = output_file(&output_filename);
-                    write_xml(path.as_os_str().to_str().unwrap(), &mut output)?;
+                    match config.target {
+                        Target::XML => {
+                            let output_filename = format!("{}", path.as_os_str().to_str().unwrap()).replace(".jack", ".xml");
+                            let mut output = output_file(&output_filename);
+                            write_xml(path.as_os_str().to_str().unwrap(), &mut output)?;
+                        },
+                        Target::VM => {
+                            let output_filename = format!("{}", path.as_os_str().to_str().unwrap()).replace(".jack", ".vm");
+                            let mut output = output_file(&output_filename);
+                            write_vm(path.as_os_str().to_str().unwrap(), &mut output)?;
+                        }
+                    }
                 }
             }
         }
@@ -31,6 +48,11 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 fn write_xml(filename: &str, output: &mut File) -> Result<(), Box<dyn Error>> {
     let file = File::open(filename)?;
     parser::XML::compile(file, output)
+}
+
+fn write_vm(filename: &str, output: &mut File) -> Result<(), Box<dyn Error>> {
+    let file = File::open(filename)?;
+    parser::VM::compile(file, output)
 }
 
 fn output_file(path: &str) -> File {
@@ -46,8 +68,14 @@ enum Source {
     Directory(String)
 }
 
+enum Target {
+    XML,
+    VM
+}
+
 pub struct Config {
-    source: Source
+    source: Source,
+    target: Target
 }
 
 impl Config {
@@ -65,6 +93,17 @@ impl Config {
             _ => return Err("Invalid filename or directory.")
         };
 
-        Ok(Config { source })
+        let target = match args.next() {
+            Some(v) => {
+                if v == "xml".to_string() {
+                    Target::XML
+                } else {
+                    Target::VM
+                }
+            },
+            None => Target::VM
+        };
+
+        Ok(Config { source, target })
     }
 }
