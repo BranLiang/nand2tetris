@@ -90,7 +90,7 @@ impl Iterator for Tokenizer {
             } else if line.starts_with("/**") {
                 self.is_comment = true;
                 return self.next();
-            } else if line.starts_with("*/") {
+            } else if line.ends_with("*/") {
                 self.is_comment = false;
                 return self.next();
             } else if self.is_comment {
@@ -320,8 +320,7 @@ mod tests {
                 // print the slogan
                 /** I am a comment */
                 /**
-                 * Test
-                 */
+                 * Test */
                 do Output.printString(\"hello world :)\");
             }
         ";

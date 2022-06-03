@@ -138,7 +138,14 @@ impl VM {
                 &var_dec.var_name.0,
                 var_dec.var_type.clone(),
                 var_dec.dec_type.to_symbol_kind()
-            )
+            );
+            for extra_var_name in &var_dec.extra_var_names {
+                self.class_table.push(
+                    &extra_var_name.0,
+                    var_dec.var_type.clone(),
+                    var_dec.dec_type.to_symbol_kind()
+                );
+            }
         }
         // adding subroutine vm instructions
         for subroutine_dec in class.subroutine_decs.iter() {
@@ -174,6 +181,14 @@ impl VM {
                 var_dec.var_type.clone(),
                 SymbolKind::Local
             );
+            for extra_var_name in var_dec.extra_var_names.iter() {
+                n_vars += 1;
+                self.subroutine_table.push(
+                    &extra_var_name.0,
+                    var_dec.var_type.clone(),
+                    SymbolKind::Local
+                );
+            }
         }
 
         let mut instructions = Vec::new();
@@ -197,17 +212,12 @@ impl VM {
         }
         // handle statements
         instructions.push(
-            self.compile_statements(&subroutine_dec.body.statements)
+            self.compile_statements(&subroutine_dec.body.statements, &subroutine_dec.return_type)
         );
-        // handle void return type
-        if let SubroutineReturnType::Void = subroutine_dec.return_type {
-            instructions.push(VM::push("constant", 0));
-            instructions.push("return".to_string());
-        }
         VM::build(instructions)
     }
 
-    fn compile_statements(&mut self, statements: &Statements) -> String {
+    fn compile_statements(&mut self, statements: &Statements, return_type: &SubroutineReturnType) -> String {
         let mut instructions = Vec::new();
         for statement in statements.0.iter() {
             match statement {
@@ -216,10 +226,10 @@ impl VM {
                     instructions.push(VM::pop("temp", 0));
                 },
                 Statement::If(statement) => {
-                    instructions.push(self.compile_if_statement(statement));
+                    instructions.push(self.compile_if_statement(statement, return_type));
                 },
                 Statement::While(statement) => {
-                    instructions.push(self.compile_while_statement(statement));
+                    instructions.push(self.compile_while_statement(statement, return_type));
                 },
                 Statement::Let(statement) => {
                     instructions.push(self.compile_let_statement(statement));
@@ -227,8 +237,10 @@ impl VM {
                 Statement::Return(expression) => {
                     if let Some(expression) = expression {
                         instructions.push(self.compile_expression(expression));
+                    } else if let SubroutineReturnType::Void = return_type {
+                        instructions.push(VM::push("constant", 0));
                     }
-                    instructions.push("return".to_string())
+                    instructions.push("return\n".to_string())
                 }
             }
         }
@@ -264,7 +276,7 @@ impl VM {
         }
     }
 
-    fn compile_if_statement(&mut self, statement: &IfStatement) -> String {
+    fn compile_if_statement(&mut self, statement: &IfStatement, return_type: &SubroutineReturnType) -> String {
         let l1 = self.generate_label();
         let l2 = self.generate_label();
 
@@ -272,17 +284,17 @@ impl VM {
         instructions.push(self.compile_expression(&statement.expression));
         instructions.push(VM::op("not"));
         instructions.push(VM::ifgoto(&l1));
-        instructions.push(self.compile_statements(&statement.if_statements));
+        instructions.push(self.compile_statements(&statement.if_statements, return_type));
         instructions.push(VM::goto(&l2));
         instructions.push(VM::label(&l1));
         if let Some(statements) = &statement.else_statements {
-            instructions.push(self.compile_statements(statements));
+            instructions.push(self.compile_statements(statements, return_type));
         }
         instructions.push(VM::label(&l2));
         VM::build(instructions)
     }
 
-    fn compile_while_statement(&mut self, statement: &WhileStatement) -> String {
+    fn compile_while_statement(&mut self, statement: &WhileStatement, return_type: &SubroutineReturnType) -> String {
         let l1 = self.generate_label();
         let l2 = self.generate_label();
 
@@ -291,14 +303,16 @@ impl VM {
         instructions.push(self.compile_expression(&statement.expression));
         instructions.push(VM::op("not"));
         instructions.push(VM::ifgoto(&l2));
-        instructions.push(self.compile_statements(&statement.statements));
+        instructions.push(self.compile_statements(&statement.statements, return_type));
         instructions.push(VM::goto(&l1));
         instructions.push(VM::label(&l2));
         VM::build(instructions)
     }
 
     fn compile_let_statement(&self, statement: &LetStatement) -> String {
-        let symbol = self.find_by(&statement.var_name.0).unwrap();
+        let symbol = self.find_by(&statement.var_name.0).unwrap_or_else(|| {
+            panic!("Var {} not found!", &statement.var_name.0);
+        });
         if let Some(expression) = &statement.index_expression {
             // handle array index assignment
             VM::build(vec![
