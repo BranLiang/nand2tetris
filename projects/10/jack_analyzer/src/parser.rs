@@ -156,7 +156,7 @@ impl VM {
 
     fn compile_subroutine(&mut self, subroutine_dec: &SubroutineDec) -> String {
         self.subroutine_table = SymbolTable::new();
-        // add method to the subroutine symbol table
+        // add method to the subroutine symbol table 
         if let SubroutineType::Method = subroutine_dec.subroutine_type {
             self.subroutine_table.push(
                 "this",
@@ -252,27 +252,35 @@ impl VM {
         for expression in subroutine_call.expression_list.iter() {
             instructions.push_str(&self.compile_expression(expression));
         }
-        let caller = match &subroutine_call.caller {
-            Some(v) => v.to_string(),
-            None => "this".to_string()
-        };
-        if let Some(symbol) = self.find_by(&caller) {
-            // handle method call
-            let segment = symbol.vm_memory_segment();
-            let index = symbol.index();
-            let command = format!("{}.{}", symbol.class_name(), subroutine_call.subroutine_name.0);
-            VM::build(vec![
-                VM::push(&segment, index),
-                instructions,
-                VM::call(&command, subroutine_call.expression_list.len() as i16 + 1)
-            ])
-        } else {
-            // handle function calls and constructor calls
-            let command = format!("{}.{}", caller, subroutine_call.subroutine_name.0);
-            VM::build(vec![
-                instructions,
-                VM::call(&command, subroutine_call.expression_list.len() as i16)
-            ])
+        match &subroutine_call.caller {
+            None => {
+                let command = format!("{}.{}", self.class_name, subroutine_call.subroutine_name.0);
+                VM::build(vec![
+                    VM::push("pointer", 0),
+                    instructions,
+                    VM::call(&command, subroutine_call.expression_list.len() as i16 + 1)
+                ])
+            },
+            Some(caller) => {
+                if let Some(symbol) = self.find_by(&caller) {
+                    // handle method call
+                    let segment = symbol.vm_memory_segment();
+                    let index = symbol.index();
+                    let command = format!("{}.{}", symbol.class_name(), subroutine_call.subroutine_name.0);
+                    VM::build(vec![
+                        VM::push(&segment, index),
+                        instructions,
+                        VM::call(&command, subroutine_call.expression_list.len() as i16 + 1)
+                    ])
+                } else {
+                    // handle function calls and constructor calls
+                    let command = format!("{}.{}", caller, subroutine_call.subroutine_name.0);
+                    VM::build(vec![
+                        instructions,
+                        VM::call(&command, subroutine_call.expression_list.len() as i16)
+                    ])
+                }
+            }
         }
     }
 
