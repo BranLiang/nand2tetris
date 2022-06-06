@@ -1,0 +1,131 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/12/Screen.jack
+
+/**
+ * A library of functions for displaying graphics on the screen.
+ * The Hack physical screen consists of 256 rows (indexed 0..255, top to bottom)
+ * of 512 pixels each (indexed 0..511, left to right). The top left pixel on 
+ * the screen is indexed (0,0).
+ */
+class Screen {
+    static boolean current_color;
+    static array twoToThe;
+
+    /** Initializes the Screen. */
+    function void init() {
+        let current_color = true;
+        let twoToThe = Array.new(16);
+        let twoToThe[0] = 1;
+        let twoToThe[1] = 2;
+        let twoToThe[2] = 4;
+        let twoToThe[3] = 8;
+        let twoToThe[4] = 16;
+        let twoToThe[5] = 32;
+        let twoToThe[6] = 64;
+        let twoToThe[7] = 128;
+        let twoToThe[8] = 256;
+        let twoToThe[9] = 512;
+        let twoToThe[10] = 1024;
+        let twoToThe[11] = 2048;
+        let twoToThe[12] = 4096;
+        let twoToThe[13] = 8192;
+        let twoToThe[14] = 16384;
+        let twoToThe[15] = 16384+16384;
+        return;
+    }
+
+    /** Erases the entire screen. */
+    function void clearScreen() {
+        do Screen.setColor(false);
+        do Screen.drawRectangle(0, 0, 511, 255);
+        do Screen.setColor(true);
+        return;
+    }
+
+    /** Sets the current color, to be used for all subsequent drawXXX commands.
+     *  Black is represented by true, white by false. */
+    function void setColor(boolean b) {
+        let current_color = b;
+        return;
+    }
+
+    /** Draws the (x,y) pixel, using the current color. */
+    function void drawPixel(int x, int y) {
+        var int address, value, position, mask;
+        let address = (32*y) + (x/16);
+        let position = x - (x/16*16);
+        let mask = twoToThe[position];
+        let value = Memory.peek(16384 + address);
+        if (current_color) {
+            let value = value | mask;
+        } else {
+            let value = value & ~mask;
+        }
+        do Memory.poke(16384 + address, value);
+        return;
+    }
+
+    /** Draws a line from pixel (x1,y1) to pixel (x2,y2), using the current color. */
+    function void drawLine(int x1, int y1, int x2, int y2) {
+        var int a, b, diff, dx, dy;
+        let a = 0;
+        let b = 0;
+        let diff = 0;
+        let dx = Math.abs(x2 - x1);
+        let dy = Math.abs(y2 - y1);
+        while(~(Math.abs(a) > dx) & ~(Math.abs(b) > dy)) {
+            do Screen.drawPixel(x1 + a, y1 + b);
+            if ((diff < 0) | (y1 = y2)) {
+                if (x2 > x1) {
+                    let a = a + 1;
+                } else {
+                    let a = a - 1;
+                }
+                let diff = diff + dy;
+            } else {
+                if (y2 > y1) {
+                    let b = b + 1;
+                } else {
+                    let b = b - 1;
+                }
+                if (~(x1 = x2)) {
+                    let diff = diff - dx;
+                }
+            }
+        }
+        return;
+    }
+
+    /** Draws a filled rectangle whose top left corner is (x1, y1)
+     * and bottom right corner is (x2,y2), using the current color. */
+    function void drawRectangle(int x1, int y1, int x2, int y2) {
+        var int dy, b;
+        let b = 0;
+        let dy = Math.abs(y2 - y1);
+        while(~(Math.abs(b) > dy)) {
+            do Screen.drawLine(x1, y1 + b, x2, y1 + b);
+            if (y2 > y1) {
+                let b = b + 1;
+            } else {
+                let b = b - 1;
+            }
+        }
+        return;
+    }
+
+    /** Draws a filled circle of radius r<=181 around (x,y), using the current color. */
+    function void drawCircle(int x, int y, int r) {
+        var int dy, temp;
+        let dy = -r;
+        if (r < 182) {
+            while(~(dy > r)) {
+                let temp = Math.sqrt((r*r)-(dy*dy));
+                do Screen.drawLine(x-temp, y+dy, x+temp, y+dy);
+                let dy = dy + 1;
+            }
+        }
+        return;
+    }
+}
