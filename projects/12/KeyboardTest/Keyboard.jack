@@ -7,9 +7,9 @@
  * A library for handling user input from the keyboard.
  */
 class Keyboard {
-
     /** Initializes the keyboard. */
     function void init() {
+        return;
     } 
 
     /**
@@ -33,6 +33,7 @@ class Keyboard {
      * F1 - F12 = 141 - 152
      */
     function char keyPressed() {
+        return Memory.peek(24576);
     }
 
     /**								
@@ -41,6 +42,12 @@ class Keyboard {
      * of the pressed key.
      */
     function char readChar() {
+        var char c;
+        while (Keyboard.keyPressed() = 0) {}
+        let c = Keyboard.keyPressed();
+        while (~(Keyboard.keyPressed() = 0)) {}
+        do Output.printChar(c);
+        return c;
     }
 
     /**								
@@ -49,6 +56,27 @@ class Keyboard {
      * and returns its value. Also handles user backspaces.
      */
     function String readLine(String message) {
+        var String str;
+        var boolean ok;
+        var char c;
+        do Output.printString(message);
+        let ok = true;
+        let str = String.new(64);
+        while (ok) {
+            let c = Keyboard.readChar();
+            // handle new line
+            if (c = 128) {
+                do Output.println();
+                let ok = false;
+            } else {
+                if (c = 129) {
+                    do Output.backSpace();
+                } else {
+                    do str.appendChar(c);
+                }
+            }
+        }
+        return str;
     }   
 
     /**								
@@ -58,5 +86,31 @@ class Keyboard {
      * entered text is detected). Also handles user backspaces. 
      */
     function int readInt(String message) {
+        var String str;
+        var boolean ok;
+        var char c;
+        do Output.printString(message);
+        let ok = true;
+        let str = String.new(64);
+        while (ok) {
+            let c = Keyboard.readChar();
+            // handle new line
+            if (c = 128) {
+                do Output.println();
+                let ok = false;
+            } else {
+                if (c = 129) {
+                    do Output.backSpace();
+                } else {
+                    // handle digit number
+                    if (((c > 47) & (c < 58)) | (c = 45)) {
+                        do str.appendChar(c);
+                    } else {
+                        let ok = false;
+                    }
+                }
+            }
+        }
+        return str.intValue();
     }
 }
